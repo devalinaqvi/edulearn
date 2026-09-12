@@ -1,0 +1,64 @@
+<?php
+
+use App\Http\Controllers\AcademicController;
+use App\Http\Controllers\AdminController;
+use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CourseController;
+use App\Http\Controllers\NoteController;
+use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\QuizController;
+use App\Http\Middleware\EnsureAccountIsActive;
+use Illuminate\Support\Facades\Route;
+
+Route::get('/', fn () => redirect(auth()->check() ? '/dashboard' : '/login'));
+Route::middleware('guest')->group(function () {
+    Route::view('/login', 'auth.login')->name('login');
+    Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:auth');
+    Route::view('/forgot-password', 'auth.forgot')->name('password.request');
+    Route::post('/forgot-password', [AuthController::class, 'forgot'])->middleware('throttle:auth')->name('password.email');
+    Route::get('/reset-password/{token}', fn (string $token) => view('auth.reset', compact('token')))->name('password.reset');
+    Route::post('/reset-password', [AuthController::class, 'reset'])->middleware('throttle:auth')->name('password.update');
+});
+Route::middleware(['auth', 'auth.session', EnsureAccountIsActive::class])->group(function () {
+    Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
+    Route::get('/dashboard', [CourseController::class, 'dashboard'])->name('dashboard');
+    Route::get('/courses/{course}/overview', [CourseController::class, 'overview'])->name('courses.overview');
+    Route::get('/dashboard/learner', [CourseController::class, 'dashboard'])->defaults('dashboard_role', 'student')->name('dashboard.student');
+    Route::get('/dashboard/instructor', [CourseController::class, 'dashboard'])->defaults('dashboard_role', 'instructor')->name('dashboard.instructor');
+    Route::get('/dashboard/administrator', [CourseController::class, 'dashboard'])->defaults('dashboard_role', 'admin')->name('dashboard.admin');
+    Route::get('/profile', [ProfileController::class, 'show'])->name('profile.show');
+    Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
+    Route::put('/profile/password', [ProfileController::class, 'password'])->name('profile.password');
+    Route::post('/admin/users', [AdminController::class, 'createUser'])->name('admin.users.store');
+    Route::post('/courses/{course}/enroll', [CourseController::class, 'enroll'])->name('courses.enroll');
+    Route::resource('courses', CourseController::class)->except('destroy');
+    Route::post('/courses/{course}/lessons', [CourseController::class, 'lesson'])->name('lessons.store');
+    Route::patch('/lessons/{lesson}', [CourseController::class, 'updateLesson'])->name('lessons.update');
+    Route::post('/lessons/{lesson}/complete', [CourseController::class, 'complete'])->name('lessons.complete');
+    Route::post('/courses/{course}/materials', [CourseController::class, 'material'])->name('materials.store');
+    Route::get('/materials/{material}/download', [CourseController::class, 'download'])->name('materials.download');
+    Route::post('/courses/{course}/assignments', [AcademicController::class, 'assignment'])->name('assignments.store');
+    Route::get('/assignments/{assignment}', [AcademicController::class, 'show'])->name('assignments.show');
+    Route::post('/assignments/{assignment}/rubric', [AcademicController::class, 'rubric'])->name('assignments.rubric');
+    Route::post('/assignments/{assignment}/extensions', [AcademicController::class, 'extend'])->name('assignments.extend');
+    Route::post('/assignments/{assignment}/submit', [AcademicController::class, 'submit'])->name('assignments.submit');
+    Route::patch('/submissions/{submission}/grade', [AcademicController::class, 'grade'])->name('submissions.grade');
+    Route::get('/submissions/{submission}/download', [AcademicController::class, 'download'])->name('submissions.download');
+    Route::post('/courses/{course}/announcements', [AcademicController::class, 'announcement'])->name('announcements.store');
+    Route::get('/courses/{course}/quizzes', [QuizController::class, 'index'])->name('quizzes.index');
+    Route::post('/courses/{course}/quizzes', [QuizController::class, 'store'])->name('quizzes.store');
+    Route::get('/quizzes/{quiz}', [QuizController::class, 'show'])->whereNumber('quiz')->name('quizzes.show');
+    Route::post('/quizzes/{quiz}/author', [QuizController::class, 'author'])->whereNumber('quiz')->name('quizzes.author');
+    Route::post('/quizzes/{quiz}/start', [QuizController::class, 'start'])->whereNumber('quiz')->name('quizzes.start');
+    Route::post('/quizzes/{quiz}/answers', [QuizController::class, 'answer'])->whereNumber('quiz')->name('quizzes.answer');
+    Route::get('/notes', [NoteController::class, 'index'])->name('notes.index');
+    Route::post('/notes', [NoteController::class, 'store'])->middleware('throttle:notes')->name('notes.store');
+    Route::get('/notes/{note}', [NoteController::class, 'show'])->name('notes.show');
+    Route::patch('/notes/{note}', [NoteController::class, 'update'])->name('notes.update');
+    Route::delete('/notes/{note}', [NoteController::class, 'destroy'])->name('notes.destroy');
+    Route::get('/admin', [AdminController::class, 'index'])->name('admin');
+    Route::get('/admin/courses/{course}/access', [AdminController::class, 'access'])->name('admin.access');
+    Route::post('/admin/courses/{course}/access', [AdminController::class, 'changeAccess'])->name('admin.access.change');
+    Route::patch('/admin/users/{user}', [AdminController::class, 'user'])->name('admin.users');
+    Route::put('/admin/settings', [AdminController::class, 'settings'])->name('admin.settings');
+});
