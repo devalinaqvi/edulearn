@@ -115,7 +115,7 @@
 </div>@empty<p class="muted">No materials uploaded yet.</p>@endforelse</section>
 @if($manage)<details class="panel">
 <summary>+ Upload study material</summary>
-<form method="post" enctype="multipart/form-data" action="{{ route('materials.store',$course) }}">@csrf<label>Title<input name="title" required>
+<form data-upload method="post" enctype="multipart/form-data" action="{{ route('materials.store',$course) }}">@csrf<label>Title<input name="title" required>
 </label>
 <label>Lesson (optional)<select name="lesson_id">
 <option value="">General course material</option>@foreach($course->lessons as $lesson)<option value="{{ $lesson->id }}">{{ $lesson->title }}</option>@endforeach</select>
@@ -123,7 +123,7 @@
 <label>File<input type="file" name="file" accept=".txt,.md,.pdf,.docx,.pptx" required>
 </label>
 <p class="muted">PDF, DOCX, PPTX, TXT or Markdown · 10 MB maximum. AI notes support UTF-8 TXT and Markdown only.</p>
-<button class="button">Upload material</button>
+<progress data-upload-progress max="100" value="0" aria-label="Upload progress" hidden></progress><p data-upload-status role="status" aria-live="polite"></p><button class="button">Upload material</button>
 </form>
 </details>@endif
 <div class="section-heading">

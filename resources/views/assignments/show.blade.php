@@ -25,13 +25,13 @@
 <button class="button">Save rubric</button></form></details>
 @endif
 <details class="panel"><summary>Grant a student deadline extension</summary><p>Extensions can only move deadlines later. Record a brief administrative reason without medical or other sensitive details.</p><form method="post" action="{{ route('assignments.extend', $assignment) }}">@csrf<label>Student<select name="user_id" required><option value="">Select a enrolled learner</option>@foreach($students as $student)<option value="{{ $student->id }}">{{ $student->name }} · {{ $student->email }}</option>@endforeach</select></label><label>New deadline (UTC)<input type="datetime-local" name="due_at" required></label><label>Reason (visible to the student)<textarea name="reason" maxlength="1000" required></textarea></label><button class="button">Record extension</button></form></details>
-@else<p class="panel">Your deadline: <strong>{{ $deadline->format('M j, Y · H:i') }} UTC</strong></p>
+@else @if(now()->gte($deadline))<p class="notice">The deadline has passed. Submissions and replacements are closed.</p>@endif<p class="panel">Your deadline: <strong>{{ $deadline->format('M j, Y · H:i') }} UTC</strong></p>
 @endif
 @if($extensions->isNotEmpty())<details class="panel"><summary>Deadline extension history</summary>@foreach($extensions as $extension)<p><strong>{{ $extension->name }}</strong> · {{ $extension->due_at }} UTC<br>{{ $extension->reason }}</p>@endforeach</details>@endif
 @if(!$manage)@php($submission=$submissions->first())<div class="section-heading">
 <h2>Your submission</h2>
-</div>@if(!$submission || $submission->status!=='graded')<form class="panel" method="post" enctype="multipart/form-data" action="{{ route('assignments.submit',$assignment) }}">@csrf<p class="muted">Submit text, a file, or both. Late work is accepted and labeled. You may replace your submission until it is graded. Replacement overwrites your previous text and file.</p>
-<label>Your response<textarea name="body" rows="7">{{ old('body',$submission?->body) }}</textarea>
+</div>@if(now()->lt($deadline) && (!$submission || $submission->status!=='graded'))<form class="panel" method="post" enctype="multipart/form-data" action="{{ route('assignments.submit',$assignment) }}">@csrf<p class="muted">Submit text, a file, or both. Late work is blocked. You may replace ungraded work before your deadline. Previous versions remain in your submission history.</p>
+<input type="hidden" name="version" value="{{ $submission?->grade_version ?? 0 }}"><label>Your response<textarea name="body" rows="7">{{ old('body',$submission?->body) }}</textarea>
 </label>
 <label>Attach a file<input type="file" name="file" accept=".txt,.md,.pdf">
 </label>
@@ -47,24 +47,30 @@
 <span class="badge">{{ ucfirst($submission->status) }}{{ $submission->is_late ? ' · Late' : '' }}</span>
 </div>
 <p class="muted">{{ $submission->submitted_at->format('M j, Y · H:i') }} UTC</p>
-<div class="prose">{{ $submission->body }}</div>@if($submission->path)<p>
+<div class="prose">{{ $submission->body }}</div>
+@if(($revisions[$submission->id] ?? collect())->isNotEmpty())<details><summary>Previous submission versions</summary>@foreach($revisions[$submission->id] as $revision)<section><h4>Version {{ $revision->version + 1 }} · {{ $revision->submitted_at }} UTC</h4><div class="prose">{{ $revision->body }}</div>@if($revision->path)<a href="{{ route('submissions.revisions.download', $revision->id) }}">Download previous attachment</a>@endif</section>@endforeach</details>@endif
+@if($submission->path)<p>
 <a href="{{ route('submissions.download',$submission) }}">Download attachment ↓</a>
-</p>@endif @if($submission->status==='graded')<div class="grade">
-<strong>{{ $submission->grade }} / {{ $assignment->max_marks }}</strong>
-@if($submission->rubric_scores)@foreach($assignment->rubric as $index => $criterion)<p>{{ $criterion['label'] }}: {{ $submission->rubric_scores[$index] }} / {{ $criterion['max_marks'] }}</p>@endforeach
-@endif
-<p>{{ $submission->feedback ?: 'No written feedback provided.' }}</p>
-</div>@endif @if($manage)<form method="post" action="{{ route('submissions.grade',$submission) }}">@csrf @method('patch')<input type="hidden" name="version" value="{{ $submission->grade_version }}">
+</p>@endif @php($displayResult = $manage && $submission->status === 'graded' ? $submission->only(['grade', 'feedback', 'rubric_scores']) : $submission->published_result)
+@if($displayResult)<div class="grade">
+<strong>{{ $displayResult['grade'] }} / {{ $assignment->max_marks }}</strong>
+@if($displayResult['rubric_scores']) @foreach($assignment->rubric as $index => $criterion)<p>{{ $criterion['label'] }}: {{ $displayResult['rubric_scores'][$index] }} / {{ $criterion['max_marks'] }}</p>@endforeach @endif
+<p>{{ $displayResult['feedback'] ?: 'No written feedback provided.' }}</p>
+</div>@elseif(!$manage && $submission->status === 'graded')<p>Results are awaiting publication.</p>@endif
+@if($manage)<form method="post" action="{{ route('submissions.grade',$submission) }}">@csrf @method('patch')<input type="hidden" name="version" value="{{ $submission->grade_version }}">
 @if($assignment->rubric)
 @foreach($assignment->rubric as $index => $criterion)<label>{{ $criterion['label'] }} ({{ $criterion['max_marks'] }} marks)<input type="number" name="scores[{{ $index }}]" step="0.01" min="0" max="{{ $criterion['max_marks'] }}" value="{{ $submission->rubric_scores[$index] ?? '' }}" required></label>@endforeach
 @else<label>Grade (out of {{ $assignment->max_marks }})<input type="number" step="0.01" min="0" max="{{ $assignment->max_marks }}" name="grade" value="{{ $submission->grade }}" required>
 </label>
 @endif
-<label>Reason for this grading decision (visible to student)<textarea name="reason" maxlength="1000" required></textarea></label>
+<label>Reason for this grading decision (staff audit trail)<textarea name="reason" maxlength="1000" required></textarea></label>
 <label>Feedback<textarea name="feedback" rows="3">{{ $submission->feedback }}</textarea>
 </label>
 <button class="button">Save grade & feedback</button>
-</form>@endif
+</form>
+@if($submission->status === 'graded')<p>{{ $submission->published_grade_version === $submission->grade_version ? 'This grade is published.' : 'This grade has unpublished changes.' }}</p>
+<form method="post" action="{{ route('submissions.publish', $submission) }}" data-confirm="Publish this reviewed grade and feedback to the learner?">@csrf<input type="hidden" name="version" value="{{ $submission->grade_version }}"><label>Publication reason<input name="reason" required maxlength="1000"></label><label><input type="checkbox" name="confirm" value="1" required> I have reviewed the grade and feedback.</label><button class="button">Publish result</button></form>@endif
+@endif
 @if(isset($history[$submission->id]))<details><summary>Grade history</summary>@foreach($history[$submission->id] as $change)@php($after=json_decode($change->after, true))<p><strong>{{ $after['grade'] }} / {{ $assignment->max_marks }}</strong> · {{ $change->name }} · {{ $change->created_at }} UTC<br>{{ $change->reason }}<br>{{ $after['feedback'] }}</p>@endforeach</details>@endif
 </article>@empty<div class="empty panel">{{ $manage ? 'No submissions received yet.' : 'You have not submitted this assignment yet.' }}</div>@endforelse
 @endsection

@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\StudyNote;
 use App\Models\User;
+use App\Services\AiSettings;
 use App\Services\NotesProvider;
 use App\Services\SourceText;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -39,6 +40,12 @@ class GenerateStudyNotes implements ShouldQueue
         if (! $note || in_array($note->status, ['completed', 'failed'])) {
             return;
         }
+        $configuration = app(AiSettings::class)->current();
+        if (! $configuration->enabled || $configuration->version !== $note->ai_configuration_version) {
+            $note->update(['status' => 'failed', 'error' => 'AI configuration changed or was disabled. Request new notes.']);
+
+            return;
+        }
         $user = User::find($note->user_id);
         if (! $user || ! Gate::forUser($user->fresh())->allows('studySource', $note->course)) {
             $note->update(['status' => 'failed', 'error' => 'You no longer have access to this course source.']);
@@ -59,8 +66,9 @@ class GenerateStudyNotes implements ShouldQueue
 
                 return;
             }
-            $content = $provider->generate($text, $note->provider);
-            if (! Gate::forUser($user->fresh())->allows('studySource', $note->course->fresh())) {
+            $content = $provider->generate($text, $note->provider, $note->model_name);
+            $currentConfiguration = app(AiSettings::class)->current();
+            if (! $currentConfiguration->enabled || $currentConfiguration->version !== $note->ai_configuration_version || ! Gate::forUser($user->fresh())->allows('studySource', $note->course->fresh())) {
                 $note->update(['status' => 'failed', 'content' => null, 'error' => 'Your course access changed before generation finished.']);
 
                 return;

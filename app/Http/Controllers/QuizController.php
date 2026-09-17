@@ -51,6 +51,34 @@ class QuizController extends Controller
         return view('quizzes.show', compact('quiz', 'course', 'manage', 'attempt', 'questions', 'maximum', 'answers', 'expired', 'results'));
     }
 
+    public function review(Request $request, int $attempt)
+    {
+        $attempt = DB::table('quiz_attempts')->find($attempt);
+        abort_unless($attempt, 404);
+        $quiz = DB::table('quizzes')->find($attempt->quiz_id);
+        Gate::authorize('manage', Course::findOrFail($quiz->course_id));
+        $questions = json_decode($quiz->questions, true);
+        $answers = json_decode($attempt->answers, true);
+        $scores = json_decode($attempt->manual_scores ?? '[]', true);
+        $history = DB::table('quiz_assessment_changes')->where('quiz_attempt_id', $attempt->id)->orderByDesc('id')->get();
+
+        return view('quizzes.review', compact('quiz', 'attempt', 'questions', 'answers', 'scores', 'history'));
+    }
+
+    public function saveReview(Request $request, int $attempt, QuizWorkflow $workflow): RedirectResponse
+    {
+        $workflow->review($request->user(), $attempt, $request->all());
+
+        return back()->with('status', 'Draft quiz review saved.');
+    }
+
+    public function publishResult(Request $request, int $attempt, QuizWorkflow $workflow): RedirectResponse
+    {
+        $workflow->review($request->user(), $attempt, $request->all(), true);
+
+        return back()->with('status', 'Quiz result published.');
+    }
+
     public function author(Request $request, int $quiz, QuizWorkflow $workflow): RedirectResponse
     {
         $workflow->author($request->user(), $quiz, $request->all());

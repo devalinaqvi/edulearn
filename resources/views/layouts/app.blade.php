@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>@yield('title', 'Workspace') · {{ \Illuminate\Support\Facades\DB::table('settings')->where('key','site_name')->value('value') ?? config('app.name') }}</title>
-<link rel="stylesheet" href="{{ asset('app.css') }}">
-<script src="{{ asset('app.js') }}" defer>
+<link rel="stylesheet" href="{{ asset('app.css') }}?v={{ filemtime(public_path('app.css')) }}">
+<script src="{{ asset('app.js') }}?v={{ filemtime(public_path('app.js')) }}" defer>
 </script>
 </head>
 <body>
@@ -23,6 +23,7 @@
 <span>▤</span> {{ auth()->user()->role === 'student' ? 'Course catalog' : 'Manage courses' }}</a>
 <a class="{{ request()->routeIs('notes.*') ? 'active' : '' }}" href="{{ route('notes.index') }}">
 <span>✧</span> My study notes</a>
+<a href="{{ route('announcements.index') }}"><span aria-hidden="true">◇</span> Announcements</a>
 <a href="{{ route('profile.show') }}" class="{{ request()->routeIs('profile.*') ? 'active' : '' }}"><span>○</span> My profile</a>@if(auth()->user()->role === 'admin')<a class="{{ request()->routeIs('admin*') ? 'active' : '' }}" href="{{ route('admin') }}">
 <span>⚙</span> Administration</a>@endif</nav>
 <div class="sidebar-tip">

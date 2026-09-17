@@ -2,6 +2,7 @@
 @section('title', 'Administration')
 @section('content')
 <div class="page-heading"><div><span class="eyebrow">EDULEARN ADMINISTRATION</span><h1>People and platform settings</h1><p class="muted">Provision accounts, manage roles, and review activity.</p></div><a class="button secondary" href="{{ route('courses.index') }}">Manage courses</a></div>
+<p><a class="button secondary" href="{{ route('admin.ai') }}">AI administration</a></p>
 <details class="panel"><summary>Create an account</summary>
 <form method="post" action="{{ route('admin.users.store') }}">@csrf
 <div class="two-col"><label>Name<input name="name" value="{{ old('name') }}" required maxlength="100"></label><label>Email<input type="email" name="email" value="{{ old('email') }}" required></label></div>

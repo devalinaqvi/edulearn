@@ -12,7 +12,7 @@ class SaveCourseRequest extends FormRequest
     {
         $course = $this->route('course');
 
-        return $course ? Gate::allows('manage', $course) : in_array($this->user()?->role, ['admin', 'instructor'], true);
+        return $course ? Gate::allows('manage', $course) : $this->user()?->role === 'admin';
     }
 
     protected function prepareForValidation(): void

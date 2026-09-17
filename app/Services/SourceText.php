@@ -29,8 +29,8 @@ class SourceText
         if ($text === '') {
             throw ValidationException::withMessages(['source' => 'This source contains no readable text.']);
         }
-        if (mb_strlen($text) > config('study.max_input_chars')) {
-            throw ValidationException::withMessages(['source' => 'This source exceeds the 12,000-character limit. Split it into shorter lessons or materials.']);
+        if (mb_strlen($text) > app(AiSettings::class)->current()->max_input_chars) {
+            throw ValidationException::withMessages(['source' => 'This source exceeds the configured input limit. Split it into shorter lessons or materials.']);
         }
 
         return $text;

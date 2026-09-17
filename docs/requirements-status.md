@@ -24,18 +24,18 @@ The specification both permits retaining the current frontend and requests Boots
 | Public signup | Out of scope | Accounts are administrator-provisioned |
 | Learner self-enrollment | Implemented | Latest user request overrides the initial admin-only policy; published courses only, duplicate prevention, audited enrollment and administrator revocation protection |
 | Course title/description/status/instructor | Implemented | Existing management screens, primary and additional instructors, archive retains learning records |
-| Unique course code | Missing | Milestone 2 migration/backfill required |
+| Unique course code | Implemented | Unique database constraint, normalized form validation, preserved-record backfill, code search and course display |
 | Administrator-managed course enrollment | Implemented | Audited access screen and unique online enrollment constraint |
-| PDF/DOCX/PPTX materials, 10 MB, complete metadata | Partial | Current PDF/TXT/Markdown storage/download is limited to 5 MB; uploader/size metadata, Office file validation and safe replacement/removal remain |
+| PDF/DOCX/PPTX materials, 10 MB, complete metadata | Partial | 10 MB PDF/DOCX/PPTX/TXT/Markdown private uploads, Office content validation, uploader/size/time metadata and progress feedback implemented. Historical unknown uploader/size remain null. Safe replacement/removal remains |
 | Assignment authoring and private submissions | Partial | Existing title/instructions/deadline/marks, text/file submissions and private downloads; draft publication, attachments and new strict deadline policy remain |
-| Reject late submissions | Missing | Legacy workflow currently accepts/labels late work; must change in milestone 3 |
-| Submission history and replacement policy | Partial | One current submission and version guard exist; file/text replacement history must be added before claiming full evidence retention |
+| Reject late submissions | Implemented | Server rejects at or after the effective UTC deadline; individual approved extensions apply |
+| Submission history and replacement policy | Implemented | Ungraded work may be replaced before deadline; retained text/private file revisions, authorized history downloads, duplicate-content idempotency and form version guard |
 | Rubrics, marks, feedback and grade corrections | Implemented | Bounded decimal marks, criterion totals, immutable rubric after first submission, grade history and stale-form protection |
 | Result draft/publication states | Missing | Legacy grading exposes marks immediately; publication/confirmation and correction-release workflow are milestone 4 |
 | Configurable grading/rounding policy | Missing | No course grading-policy administration yet |
 | Timed MCQ quizzes | Implemented | Draft review, immutable publication, one resumable attempt, saved answers, server deadline and objective scoring |
 | Short-answer quizzes | Missing | Manual review and result publication needed |
-| Visible countdown/configurable attempt limit | Partial | Server times and deadline text exist; countdown and policy-configurable limits are not implemented |
+| Visible countdown/configurable attempt limit | Partial | Visible countdown and automatic server finalization request added; server remains authoritative. Configurable attempt limits remain |
 | Expired quiz finalization | Partial | Idempotent scheduled command exists; host scheduler supervision must be configured and verified |
 | Course announcements | Partial | Scoped course announcements exist; complete author/publication metadata and unread tracking remain |
 | Platform announcements and assignment/submission notifications | Missing | Milestone 3 |
@@ -56,7 +56,7 @@ The specification both permits retaining the current frontend and requests Boots
 
 - Accounts are administrator-managed. The latest user request enables learner self-enrollment in published courses alongside administrator enrollment. Public registration remains disabled.
 - Store timestamps in UTC and label UTC displays. Localized display and timezone-aware maintenance preferences require later work.
-- Assignment replacement will be allowed only before the effective deadline, keeping immutable versions. The current late-acceptance behavior is explicitly not SRS-compliant yet.
+- Assignment replacement will be allowed only before the effective deadline, keeping immutable versions. Strict rejection at and after the effective deadline is implemented.
 - Quiz initial policy is one attempt. Later configuration must not silently grant more attempts or change an already-started attempt's deadline.
 - Result release must be explicit. Existing immediately visible grades are legacy behavior that milestone 4 replaces.
 - The 10 MB/10 second upload target at 5 Mbps is infeasible: 10 MB takes roughly 16 seconds before overhead (10 MiB roughly 16.8 seconds). Measure network transfer and server processing separately; proposed acceptance is transfer consistent with available bandwidth plus a separately measured server-processing budget, to be agreed before performance acceptance.

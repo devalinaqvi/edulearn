@@ -54,7 +54,7 @@ class LmsTest extends TestCase
 
     private function assignment(Course $c): Assignment
     {
-        return $c->assignments()->create(['title' => 'Practice', 'instructions' => 'Explain transactions', 'due_at' => now()->subHour(), 'max_marks' => 20]);
+        return $c->assignments()->create(['title' => 'Practice', 'instructions' => 'Explain transactions', 'due_at' => now()->addHour(), 'max_marks' => 20]);
     }
 
     private function requestNote(User $u, Lesson $l): StudyNote
@@ -172,7 +172,7 @@ class LmsTest extends TestCase
         $this->enroll($other, $c);
         $this->actingAs($u)->post('/assignments/'.$a->id.'/submit', ['body' => 'Private response'])->assertRedirect();
         $s = Submission::firstOrFail();
-        $this->assertTrue($s->is_late);
+        $this->assertFalse($s->is_late);
         $this->post('/assignments/'.$a->id.'/submit', ['body' => 'Revised private response'])->assertRedirect();
         $this->assertDatabaseCount('submissions', 1);
         $this->actingAs($other)->get('/assignments/'.$a->id)->assertOk()->assertDontSee('Revised private response')->assertDontSee('@endsection')->assertSee('main', false);
@@ -180,6 +180,7 @@ class LmsTest extends TestCase
         $this->actingAs($this->user('instructor'))->patch('/submissions/'.$s->id.'/grade', ['grade' => 10])->assertForbidden();
         $this->actingAs($teacher)->patch('/submissions/'.$s->id.'/grade', ['grade' => 21])->assertSessionHasErrors('grade');
         $this->patch('/submissions/'.$s->id.'/grade', ['grade' => 18, 'feedback' => 'Well explained', 'version' => 1, 'reason' => 'Initial grading'])->assertRedirect();
+        $this->post(route('submissions.publish', $s), ['version' => 2, 'confirm' => 1, 'reason' => 'Reviewed result'])->assertRedirect();
         $this->actingAs($u)->get('/assignments/'.$a->id)->assertOk()->assertSee('Well explained');
         $this->post('/assignments/'.$a->id.'/submit', ['body' => 'Replace graded'])->assertStatus(409);
     }
@@ -270,6 +271,28 @@ class LmsTest extends TestCase
         $this->get('/notes/'.$n->id)->assertSee('My revision');
         $n->update(['status' => 'completed']);
         $this->delete('/notes/'.$n->id)->assertRedirect('/notes');
+    }
+
+    public function test_personal_note_editing_and_regeneration_are_private_confirmed_and_idempotent(): void
+    {
+        $user = $this->user();
+        $course = $this->course();
+        $this->enroll($user, $course);
+        $note = $this->requestNote($user, $this->lesson($course));
+        $note->update(['status' => 'completed', 'content' => 'Original generated notes']);
+        $this->patch(route('notes.update', $note), ['title' => 'My notes', 'content' => 'My private edits'])->assertRedirect();
+        $this->assertSame('My private edits', $note->fresh()->content);
+        $this->assertNotNull($note->fresh()->edited_at);
+        $this->actingAs($this->user())->post(route('notes.regenerate', $note), ['confirm' => 1])->assertForbidden();
+        $this->actingAs($user)->post(route('notes.regenerate', $note))->assertSessionHasErrors('confirm');
+        Queue::fake();
+        $this->post(route('notes.regenerate', $note), ['confirm' => 1])->assertRedirect();
+        $this->post(route('notes.regenerate', $note), ['confirm' => 1])->assertRedirect();
+        Queue::assertPushed(GenerateStudyNotes::class, 1);
+        $this->assertSame('pending', $note->fresh()->status);
+        $this->assertNull($note->fresh()->content);
+        $this->assertSame(2, $user->fresh()->ai_usage_count);
+        $this->patch(route('notes.update', $note), ['title' => 'My notes', 'content' => 'Edit while processing'])->assertConflict();
     }
 
     public function test_mock_generation_and_duplicate_job_delivery_save_once(): void

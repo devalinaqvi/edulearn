@@ -4,8 +4,8 @@
 <div>
 <span class="eyebrow">EXPAND YOUR HORIZONS</span>
 <h1>{{ auth()->user()->role==='student' ? 'Find your next possibility.' : 'Your teaching workspace.' }}</h1>
-<p class="muted">{{ auth()->user()->role==='student' ? 'Explore published courses and make room for something new.' : 'Create, organize, and publish your courses.' }}</p>
-</div>@if(auth()->user()->role!=='student')<a class="button" href="{{ route('courses.create') }}">+ Create course</a>@endif</div>
+<p class="muted">{{ auth()->user()->role==='student' ? 'Explore published courses and make room for something new.' : 'Manage course content and published learning.' }}</p>
+</div>@if(auth()->user()->role==='admin')<a class="button" href="{{ route('courses.create') }}">+ Create course</a>@endif</div>
 <form class="search" method="get">
 <input aria-label="Search courses" name="q" placeholder="Search by title or course code…" value="{{ request('q') }}">
 <button class="button secondary">Search</button>

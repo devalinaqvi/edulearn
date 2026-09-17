@@ -16,6 +16,8 @@ class CourseManagementTest extends TestCase
         $admin = User::factory()->create(['role' => 'admin']);
         $teacher = User::factory()->create(['role' => 'instructor']);
         $payload = ['code' => ' web-101 ', 'title' => 'Web fundamentals', 'description' => 'Learn online', 'status' => 'published', 'instructor_id' => $teacher->id];
+        $this->actingAs($teacher)->get(route('courses.create'))->assertForbidden();
+        $this->post(route('courses.store'), $payload)->assertForbidden();
         $this->actingAs($admin)->post(route('courses.store'), $payload)->assertRedirect();
         $course = Course::firstOrFail();
         $this->assertSame('WEB-101', $course->code);
@@ -54,5 +56,4 @@ class CourseManagementTest extends TestCase
         $this->assertDatabaseHas('enrollments', ['course_id' => $course->id, 'user_id' => $student->id]);
         $this->assertDatabaseHas('submissions', ['id' => $submission->id, 'body' => 'Evidence']);
     }
-
 }

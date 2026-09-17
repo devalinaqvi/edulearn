@@ -52,14 +52,14 @@ class QuizWorkflowTest extends TestCase
         $this->post(route('quizzes.start', $quiz))->assertRedirect();
         $this->assertDatabaseCount('quiz_attempts', 1);
         $this->assertSame($deadline, DB::table('quiz_attempts')->value('deadline_at'));
-        $this->get(route('quizzes.show', $quiz))->assertOk()->assertSee('Secret question prompt')->assertDontSee('Correct answer')->assertDontSee('name="correct"', false);
+        $this->get(route('quizzes.show', $quiz))->assertOk()->assertSee('Secret question prompt')->assertSee('data-quiz-seconds', false)->assertDontSee('Correct answer')->assertDontSee('name="correct"', false);
         $this->post(route('quizzes.answer', $quiz), ['version' => 0, 'action' => 'save', 'answers' => [2]])->assertRedirect();
         $this->post(route('quizzes.answer', $quiz), ['version' => 0, 'action' => 'submit', 'answers' => [0]])->assertConflict();
         $this->post(route('quizzes.answer', $quiz), ['version' => 1, 'action' => 'submit', 'answers' => [2], 'score' => 999])->assertRedirect();
         $this->assertDatabaseHas('quiz_attempts', ['quiz_id' => $quiz, 'score' => 5, 'version' => 2]);
         $this->post(route('quizzes.answer', $quiz), ['version' => 1, 'action' => 'submit', 'answers' => [0]])->assertRedirect();
         $this->assertDatabaseHas('quiz_attempts', ['quiz_id' => $quiz, 'score' => 5, 'version' => 2]);
-        $this->get(route('quizzes.show', $quiz))->assertOk()->assertSee('Your result')->assertSee('5 / 5');
+        $this->get(route('quizzes.show', $quiz))->assertOk()->assertSee('Your result')->assertSee('awaiting instructor publication')->assertDontSee('5 / 5');
         $this->actingAs($teacher)->get(route('quizzes.show', $quiz))->assertOk()->assertSee($student->name)->assertSee('5 / 5');
     }
 

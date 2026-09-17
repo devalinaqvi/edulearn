@@ -85,4 +85,23 @@ class AssessmentWorkflow
             DB::table('assessment_grade_changes')->insert(['submission_id' => $submission->id, 'actor_id' => $actor->id, 'before' => json_encode($before), 'after' => json_encode($submission->only(['grade', 'feedback', 'rubric_scores', 'grade_version'])), 'reason' => $data['reason'], 'created_at' => now()]);
         });
     }
+
+    /** @param array<string, mixed> $input */
+    public function publishResult(User $actor, Submission $submission, array $input): void
+    {
+        DB::transaction(function () use ($actor, $submission, $input) {
+            DB::table('lms_write_locks')->where('id', 1)->lockForUpdate()->first();
+            $submission->refresh();
+            Gate::forUser($actor->fresh())->authorize('manage', $submission->assignment->course);
+            $data = Validator::make($input, ['version' => 'required|integer|min:0', 'confirm' => 'accepted', 'reason' => 'required|string|max:1000'])->validate();
+            abort_unless($submission->status === 'graded' && $submission->grade !== null, 409, 'Grade the submission before publishing.');
+            abort_unless((int) $data['version'] === $submission->grade_version, 409, 'The grade changed. Review the latest grade before publishing.');
+            if ($submission->published_grade_version === $submission->grade_version) {
+                return;
+            }
+            $result = $submission->only(['grade', 'feedback', 'rubric_scores']);
+            DB::table('result_publications')->insert(['submission_id' => $submission->id, 'actor_id' => $actor->id, 'grade_version' => $submission->grade_version, 'result' => json_encode($result), 'reason' => $data['reason'], 'created_at' => now()]);
+            $submission->update(['published_result' => $result, 'published_grade_version' => $submission->grade_version, 'result_published_at' => now()]);
+        });
+    }
 }

@@ -66,6 +66,8 @@ Portable tests use isolated SQLite; the delivered application uses MySQL. MySQL 
 
 ## Important remaining work
 
-Material uploads still use the legacy 5 MB PDF/TXT/Markdown policy. Assignments still accept late work. Short-answer quizzes, explicit result publication, platform announcements and full AI administration are not yet delivered. Consult the checklist before using these workflows as SRS-compliant assessment controls.
+Materials accept PDF/DOCX/PPTX/TXT/Markdown up to 10 MB with private storage and uploader metadata. Office downloads do not imply AI extraction support. Assignments reject late work and preserve replaced submissions and files. Short-answer quizzes, explicit result publication, platform announcements and full AI administration are not yet delivered. Consult the checklist before using these workflows as SRS-compliant assessment controls.
 
 Production prerequisites include real mail, HTTPS/secure cookies, debug disabled, worker/scheduler supervision, private storage backups with restoration tests, monitoring, load measurement and a security/accessibility review. No deployment, 99% availability, WCAG conformance or concurrency target is claimed.
+
+PHP-FPM must honor `public/.user.ini` (10 MB file / 12 MB request limits); otherwise configure those limits in the site pool. Set the web-server request limit to at least 12 MB. DOCX/PPTX validation requires PHP zip and DOM extensions. Material replacement/removal and historical uploader/size backfill remain pending.

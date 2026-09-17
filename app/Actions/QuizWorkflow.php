@@ -40,7 +40,12 @@ class QuizWorkflow
             $update = [];
             if ($data['action'] === 'question') {
                 abort_if(count($questions) >= 50, 422, 'A quiz supports up to 50 questions.');
-                $question = Validator::make($input, ['prompt' => 'required|string|max:5000', 'options' => 'required|array|list|size:4', 'options.*' => 'required|string|max:1000|distinct', 'correct' => 'required|integer|between:0,3', 'points' => 'required|integer|between:1,100'])->validate();
+                $type = Validator::make($input, ['type' => 'sometimes|required|in:mcq,short'])->validate()['type'] ?? 'mcq';
+                $rules = ['prompt' => 'required|string|max:5000', 'points' => 'required|integer|between:1,100'];
+                if ($type === 'mcq') {
+                    $rules += ['options' => 'required|array|list|size:4', 'options.*' => 'required|string|max:1000|distinct', 'correct' => 'required|integer|between:0,3'];
+                }
+                $question = Validator::make($input, $rules)->validate() + ['type' => $type];
                 $questions[] = $question;
             } elseif ($data['action'] === 'remove') {
                 $remove = Validator::make($input, ['index' => 'required|integer|min:0'])->validate();
@@ -89,13 +94,13 @@ class QuizWorkflow
             if (! $expired) {
                 $rules = ['version' => 'required|integer|min:0', 'action' => 'required|in:save,submit', 'answers' => 'sometimes|array:'.implode(',', array_keys($questions))];
                 foreach ($questions as $index => $question) {
-                    $rules["answers.$index"] = 'nullable|integer|between:0,3';
+                    $rules["answers.$index"] = ($question['type'] ?? 'mcq') === 'short' ? 'nullable|string|max:5000' : 'nullable|integer|between:0,3';
                 }
                 $data = Validator::make($input, $rules)->validate();
                 abort_if((int) $data['version'] !== $attempt->version, 409, 'Answers were saved in another tab. Reload before continuing.');
                 $answers = [];
                 foreach ($questions as $index => $question) {
-                    $answers[$index] = isset($data['answers'][$index]) ? (int) $data['answers'][$index] : null;
+                    $answers[$index] = isset($data['answers'][$index]) ? (($question['type'] ?? 'mcq') === 'short' ? $data['answers'][$index] : (int) $data['answers'][$index]) : null;
                 }
                 $finish = $data['action'] === 'submit';
             }
@@ -137,12 +142,58 @@ class QuizWorkflow
     {
         $score = 0;
         foreach ($questions as $index => $question) {
-            if (isset($answers[$index]) && (int) $answers[$index] === (int) $question['correct']) {
+            if (($question['type'] ?? 'mcq') !== 'short' && isset($answers[$index]) && (int) $answers[$index] === (int) $question['correct']) {
                 $score += $question['points'];
             }
         }
 
         return $score;
+    }
+
+    /** @param array<string, mixed> $input */
+    public function review(User $actor, int $attemptId, array $input, bool $publish = false): void
+    {
+        DB::transaction(function () use ($actor, $attemptId, $input, $publish) {
+            $this->lock();
+            $attempt = DB::table('quiz_attempts')->find($attemptId);
+            abort_unless($attempt, 404);
+            $quiz = $this->find($attempt->quiz_id);
+            Gate::forUser($actor->fresh())->authorize('manage', Course::findOrFail($quiz->course_id));
+            abort_unless($attempt->submitted_at, 409, 'The attempt must be finalized before review.');
+            $questions = json_decode($quiz->questions, true);
+            $short = array_filter($questions, fn ($question) => ($question['type'] ?? 'mcq') === 'short');
+            $rules = ['version' => 'required|integer|min:0', 'reason' => 'required|string|max:1000'];
+            if ($publish) {
+                $rules['confirm'] = 'accepted';
+            } else {
+                $rules['feedback'] = 'nullable|string|max:10000';
+                $rules['scores'] = $short ? 'required|array:'.implode(',', array_keys($short)) : 'nullable|array';
+                foreach ($short as $index => $question) {
+                    $rules["scores.$index"] = 'required|numeric|decimal:0,2|min:0|max:'.$question['points'];
+                }
+            }
+            $data = Validator::make($input, $rules)->validate();
+            abort_unless((int) $data['version'] === $attempt->version, 409, 'This review changed. Reload before saving.');
+            if ($publish) {
+                abort_unless(now()->gte(Carbon::parse($quiz->closes_at)), 422, 'Results may be released only after the quiz closes.');
+                abort_if($short && ! $attempt->reviewed_at, 422, 'Grade every short answer before publishing.');
+                if ($attempt->published_version === $attempt->version) {
+                    return;
+                }
+                $result = ['score' => $attempt->score, 'feedback' => $attempt->review_feedback];
+                $update = ['published_result' => json_encode($result), 'published_version' => $attempt->version, 'result_published_at' => now()];
+                $version = $attempt->version;
+            } else {
+                $manual = $short ? array_intersect_key($data['scores'], $short) : [];
+                $cents = $this->score($questions, json_decode($attempt->answers, true)) * 100;
+                $cents += array_sum(array_map(fn ($score) => (int) round($score * 100), $manual));
+                $result = ['score' => number_format($cents / 100, 2, '.', ''), 'feedback' => $data['feedback'] ?? null, 'manual_scores' => $manual];
+                $version = $attempt->version + 1;
+                $update = ['score' => $result['score'], 'review_feedback' => $result['feedback'], 'manual_scores' => json_encode($manual), 'reviewed_at' => now(), 'version' => $version];
+            }
+            DB::table('quiz_attempts')->where('id', $attemptId)->update($update);
+            DB::table('quiz_assessment_changes')->insert(['quiz_attempt_id' => $attemptId, 'actor_id' => $actor->id, 'event' => $publish ? 'published' : 'reviewed', 'version' => $version, 'result' => json_encode($result), 'reason' => $data['reason'], 'created_at' => now()]);
+        });
     }
 
     private function lock(): void

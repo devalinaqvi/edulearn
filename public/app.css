@@ -1281,3 +1281,6 @@ legend { padding:0 8px; font-size:16px; font-weight:600; overflow-wrap:anywhere;
  .form-actions .button { flex:1 1 auto; }
 }
 @media (prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none!important; scroll-behavior:auto!important; } }
+
+/* Keep the notes invitation separate from dashboard assessment panels. */
+.notes-callout { margin-bottom: 24px; }

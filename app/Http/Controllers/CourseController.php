@@ -14,6 +14,7 @@ use App\Models\Material;
 use App\Models\StudyNote;
 use App\Models\Submission;
 use App\Models\User;
+use App\Services\AiSettings;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -36,11 +37,13 @@ class CourseController extends Controller
         $upcoming = Assignment::with('course')->whereIn('course_id', $courseIds)->where('due_at', '>=', now())->orderBy('due_at')->limit(5)->get();
         $quizzes = DB::table('quizzes')->whereIn('course_id', $courseIds)->where('status', 'published')->where('closes_at', '>', now())->orderBy('opens_at')->limit(5)->get();
         $materials = Material::with('course')->whereIn('course_id', $courseIds)->latest()->limit(5)->get();
-        $announcements = Announcement::with('course')->whereIn('course_id', $courseIds)->latest()->limit(5)->get();
+        $announcements = Announcement::visibleTo($user)->with('course')->latest()->limit(5)->get();
         $pendingReviews = $user->role !== 'student' ? Submission::whereHas('assignment', fn ($query) => $query->whereIn('course_id', $courseIds))->where('status', 'submitted')->count() : 0;
         $activeUsers = $user->role === 'admin' ? User::where('is_active', true)->count() : null;
 
-        return view('dashboard', compact('courses', 'notes', 'user', 'upcoming', 'quizzes', 'materials', 'announcements', 'pendingReviews', 'activeUsers'));
+        $aiProvider = app(AiSettings::class)->current()->provider;
+
+        return view('dashboard', compact('aiProvider', 'courses', 'notes', 'user', 'upcoming', 'quizzes', 'materials', 'announcements', 'pendingReviews', 'activeUsers'));
     }
 
     public function index(Request $r)
@@ -65,14 +68,14 @@ class CourseController extends Controller
 
     public function create(Request $r)
     {
-        abort_unless(in_array($r->user()->role, ['admin', 'instructor']), 403);
+        abort_unless($r->user()->role === 'admin', 403);
 
         return view('courses.form', ['course' => new Course, 'instructors' => User::where('role', 'instructor')->where('is_active', true)->get()]);
     }
 
     public function store(SaveCourseRequest $r)
     {
-        abort_unless(in_array($r->user()->role, ['admin', 'instructor']), 403);
+        abort_unless($r->user()->role === 'admin', 403);
         $data = $r->validated();
         $data['instructor_id'] = $r->user()->role === 'admin' ? $data['instructor_id'] : $r->user()->id;
 
@@ -164,10 +167,18 @@ class CourseController extends Controller
         $path = $file->store('materials', 'local');
         abort_unless($path, 500, 'Upload failed.');
         try {
-            $course->materials()->create(['uploader_id' => $r->user()->id, 'size_bytes' => $file->getSize(), 'uploaded_at' => now(), 'title' => $data['title'], 'lesson_id' => $data['lesson_id'] ?? null, 'path' => $path, 'original_name' => $file->getClientOriginalName(), 'format' => strtolower($file->getClientOriginalExtension())]);
+            DB::transaction(function () use ($r, $course, $data, $file, $path) {
+                DB::table('lms_write_locks')->where('id', 1)->lockForUpdate()->first();
+                Gate::forUser($r->user()->fresh())->authorize('manage', $course->fresh());
+                $course->materials()->create(['uploader_id' => $r->user()->id, 'size_bytes' => $file->getSize(), 'uploaded_at' => now(), 'title' => $data['title'], 'lesson_id' => $data['lesson_id'] ?? null, 'path' => $path, 'original_name' => $file->getClientOriginalName(), 'format' => strtolower($file->getClientOriginalExtension())]);
+            });
         } catch (\Throwable $e) {
             Storage::disk('local')->delete($path);
             throw $e;
+        }
+
+        if ($r->expectsJson()) {
+            return response()->json(['redirect' => route('courses.show', $course)]);
         }
 
         return back()->with('status', 'Material uploaded securely. PDF, DOCX and PPTX downloads are supported; AI extraction supports TXT and Markdown only.');

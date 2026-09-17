@@ -13,6 +13,7 @@ class StudyMaterialFile implements ValidationRule
     {
         if (! $value instanceof UploadedFile || ! $value->isValid() || $value->getSize() > 10 * 1024 * 1024) {
             $fail('Choose a valid file no larger than 10 MB.');
+
             return;
         }
         $extension = strtolower($value->getClientOriginalExtension());
@@ -21,12 +22,14 @@ class StudyMaterialFile implements ValidationRule
             if (! mb_check_encoding($text, 'UTF-8') || str_contains($text, "\0")) {
                 $fail('Text materials must contain readable UTF-8 text.');
             }
+
             return;
         }
         if ($extension === 'pdf') {
             if ($value->getMimeType() !== 'application/pdf' || ! str_starts_with(file_get_contents($value->getRealPath(), false, null, 0, 5), '%PDF-')) {
                 $fail('The file content is not a PDF.');
             }
+
             return;
         }
         if (! in_array($extension, ['docx', 'pptx'], true) || ! $this->validOfficeDocument($value, $extension)) {
@@ -86,6 +89,7 @@ class StudyMaterialFile implements ValidationRule
                     libxml_use_internal_errors($previous);
                 }
             }
+
             return true;
         } finally {
             $zip->close();
