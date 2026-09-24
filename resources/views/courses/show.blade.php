@@ -64,7 +64,8 @@
 </details>@endif
 <div class="section-heading">
 <h2>Assignments</h2>
-<a class="button secondary" href="{{ route('quizzes.index', $course) }}">Quizzes →</a>
+<span class="row wrap"><a class="button secondary" href="{{ route('lectures.index', $course) }}">Video lectures →</a>
+<a class="button secondary" href="{{ route('quizzes.index', $course) }}">Quizzes →</a></span>
 </div>@forelse($course->assignments as $assignment)@php($mine=$assignment->submissions->first())<a class="panel assignment-link" href="{{ route('assignments.show',$assignment) }}">
 <div>
 <h3>{{ $assignment->title }}</h3>
@@ -106,12 +107,34 @@
 <section class="panel">@forelse($course->materials as $material)<div class="material">
 <span class="file-icon">▤</span>
 <div>
-<strong>{{ $material->title }}</strong>
-<small>{{ strtoupper($material->format) }} · Private course material @if($material->size_bytes !== null) · {{ number_format($material->size_bytes / 1024, 1) }} KB @endif</small>
-<a href="{{ route('materials.download',$material) }}">Download ↓</a>@if(!$manage && in_array($material->format,['txt','md']))<form method="post" action="{{ route('notes.store') }}">@csrf<input type="hidden" name="source_type" value="material">
+<strong>{{ $material->title }}</strong>@if($material->isArchived())<span class="badge">Archived</span>@endif
+<small>{{ strtoupper($material->format) }} · Private course material @if($material->size_bytes !== null) · {{ number_format($material->size_bytes / 1024, 1) }} KB @endif @if($material->version > 1) · v{{ $material->version }} @endif</small>
+<a href="{{ route('materials.download',$material) }}">Download ↓</a>@if(!$manage && !$material->isArchived() && in_array($material->format,['txt','md','docx','pptx','pdf']))<form method="post" action="{{ route('notes.store') }}">@csrf<input type="hidden" name="source_type" value="material">
 <input type="hidden" name="source_id" value="{{ $material->id }}">
 <button class="text-button">✧ Generate notes</button>
-</form>@endif</div>
+</form>@endif
+@if($manage)<details class="edit-details">
+<summary>Manage file</summary>
+<form data-upload method="post" enctype="multipart/form-data" action="{{ route('materials.replace',$material) }}">@csrf<input type="hidden" name="version" value="{{ $material->version }}">
+<label>Title<input name="title" value="{{ $material->title }}" required maxlength="160">
+</label>
+<label>Replacement file<input type="file" name="file" accept=".txt,.md,.pdf,.docx,.pptx" required>
+</label>
+<label>Reason<input name="reason" required maxlength="1000" placeholder="Why is this file being replaced?">
+</label>
+<progress data-upload-progress max="100" value="0" aria-label="Upload progress" hidden></progress><p data-upload-status role="status" aria-live="polite"></p><button class="button secondary">Replace file</button>
+</form>
+<form method="post" action="{{ route('materials.archive',$material) }}" data-confirm="{{ $material->isArchived() ? 'Restore this material for learners?' : 'Archive this material? Learners lose access and new AI notes are blocked. Existing notes are kept.' }}">@csrf<input type="hidden" name="version" value="{{ $material->version }}">
+<input type="hidden" name="action" value="{{ $material->isArchived() ? 'restore' : 'archive' }}">
+@unless($material->isArchived())<label>Reason<input name="reason" required maxlength="1000">
+</label>@endunless<button class="button secondary">{{ $material->isArchived() ? 'Restore for learners' : 'Archive material' }}</button>
+</form>
+@if(($materialRevisions[$material->id] ?? collect())->isNotEmpty())<h4>Previous versions</h4>
+<ul class="revision-list">@foreach($materialRevisions[$material->id] as $revision)<li>v{{ $revision->version }} · {{ $revision->original_name }} · replaced {{ \Illuminate\Support\Carbon::parse($revision->replaced_at)->format('M j, Y · H:i') }} UTC by {{ $revision->replaced_by_name ?? 'unknown' }}
+<a href="{{ route('materials.revisions.download',$revision->id) }}">Download ↓</a>
+<small class="muted">{{ $revision->reason }}</small>
+</li>@endforeach</ul>@endif
+</details>@endif</div>
 </div>@empty<p class="muted">No materials uploaded yet.</p>@endforelse</section>
 @if($manage)<details class="panel">
 <summary>+ Upload study material</summary>
@@ -122,7 +145,7 @@
 </label>
 <label>File<input type="file" name="file" accept=".txt,.md,.pdf,.docx,.pptx" required>
 </label>
-<p class="muted">PDF, DOCX, PPTX, TXT or Markdown · 10 MB maximum. AI notes support UTF-8 TXT and Markdown only.</p>
+<p class="muted">PDF, DOCX, PPTX, TXT or Markdown · 10 MB maximum. AI notes can be generated from all of these, except PDFs that are scanned images (no OCR is available).</p>
 <progress data-upload-progress max="100" value="0" aria-label="Upload progress" hidden></progress><p data-upload-status role="status" aria-live="polite"></p><button class="button">Upload material</button>
 </form>
 </details>@endif

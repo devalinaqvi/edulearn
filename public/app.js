@@ -79,3 +79,63 @@ for (const timer of document.querySelectorAll('[data-quiz-seconds]')) {
  const interval = setInterval(update, 1000);
  update();
 }
+
+// Video lecture player: resume position, bounded forward-progress reporting, speed control.
+const player = document.getElementById('lecture-player');
+if (player) {
+ const status = document.querySelector('[data-player-status]');
+ const speed = document.querySelector('[data-player-speed]');
+ const bar = document.querySelector('[data-watched-bar]');
+ const label = document.querySelector('[data-watched-label]');
+ const canRecord = player.dataset.canRecord === '1';
+ const token = document.querySelector('meta[name="csrf-token"]')?.content;
+ let lastReported = 0;
+ let sending = false;
+
+ const say = (text) => { if (status) status.textContent = text; };
+
+ player.addEventListener('loadedmetadata', () => {
+  const resume = Number(player.dataset.resumeAt || 0);
+  if (resume > 0 && resume < player.duration - 1) {
+   player.currentTime = resume;
+   say('Resumed where you left off.');
+  }
+  lastReported = player.currentTime;
+ });
+ player.addEventListener('waiting', () => say('Buffering…'));
+ player.addEventListener('playing', () => say(''));
+ player.addEventListener('error', () => say('This lecture could not be played. Reload the page, or contact your instructor if it keeps failing.'));
+
+ if (speed) {
+  speed.addEventListener('change', () => { player.playbackRate = Number(speed.value); });
+ }
+
+ const report = (final) => {
+  if (!canRecord || sending || !token) { return; }
+  const current = Math.floor(player.currentTime);
+  // Credit only real elapsed forward playback; the server clamps this against its own record.
+  const delta = Math.max(0, Math.min(120, current - Math.floor(lastReported)));
+  if (!final && delta < 5) { return; }
+  sending = true;
+  lastReported = current;
+  fetch(player.dataset.progressUrl, {
+   method: 'POST',
+   headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': token },
+   body: JSON.stringify({ position_seconds: current, watched_delta: delta }),
+   keepalive: final,
+  }).then((r) => r.ok ? r.json() : null).then((result) => {
+   sending = false;
+   if (!result || !player.duration) { return; }
+   const percent = Math.min(100, Math.round(100 * result.watched_seconds / player.duration));
+   if (bar) { bar.value = percent; }
+   if (label) { label.textContent = percent + '%'; }
+   if (result.completed) { say('Lecture complete.'); }
+  }).catch(() => { sending = false; });
+ };
+
+ window.setInterval(() => { if (!player.paused) { report(false); } }, 15000);
+ player.addEventListener('pause', () => report(true));
+ player.addEventListener('ended', () => report(true));
+ player.addEventListener('seeking', () => { lastReported = player.currentTime; });
+ document.addEventListener('visibilitychange', () => { if (document.hidden) { report(true); } });
+}

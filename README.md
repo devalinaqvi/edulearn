@@ -55,7 +55,12 @@ OpenRouter integration, model discovery, secure credential administration, instr
 ## Verification
 
 ```sh
-vendor/bin/phpunit
+# MySQL run. Clear the config cache FIRST: a cached config ignores DB_DATABASE and the
+# suite would run migrate:fresh against the application database.
+php artisan config:clear
+DB_CONNECTION=mysql DB_DATABASE=acumen_university_test vendor/bin/phpunit
+
+vendor/bin/phpunit                 # portable SQLite run
 vendor/bin/pint --format agent
 composer validate --no-check-publish
 php artisan view:cache --no-interaction
@@ -64,10 +69,20 @@ php artisan route:list --except-vendor
 
 Portable tests use isolated SQLite; the delivered application uses MySQL. MySQL integration tests require a dedicated test database. The destructive upgrade fixture explicitly permits only `acumen_university_test` on MySQL; that retained test database name has no relationship to the active product scope.
 
+`tests/TestCase.php` refuses to run if the connection resolves to `acumen_lms`, and reports how to fix it. `RefreshDatabase` runs `migrate:fresh`, so without that guard a stale `bootstrap/cache/config.php` silently destroys application data — this has happened.
+
 ## Important remaining work
 
-Materials accept PDF/DOCX/PPTX/TXT/Markdown up to 10 MB with private storage and uploader metadata. Office downloads do not imply AI extraction support. Assignments reject late work and preserve replaced submissions and files. Short-answer quizzes, explicit result publication, platform announcements and full AI administration are not yet delivered. Consult the checklist before using these workflows as SRS-compliant assessment controls.
+Materials accept PDF/DOCX/PPTX/TXT/Markdown up to 10 MB with private storage and uploader metadata, and support replacement with retained revisions plus archival. AI study notes now extract text from TXT, Markdown, DOCX, PPTX and text-based PDF; scanned PDFs are reported as needing OCR, which is **not** implemented. Short-answer quizzes, explicit result publication and AI administration are delivered.
+
+Still missing: assignment draft/publication and attachments, assignment notifications, configurable quiz attempt limits, configurable grading/rounding policy, result summaries and reports, and instructor AI quiz-question generation. See `docs/requirements-status.md` for the full outstanding list before treating any workflow as SRS-compliant.
 
 Production prerequisites include real mail, HTTPS/secure cookies, debug disabled, worker/scheduler supervision, private storage backups with restoration tests, monitoring, load measurement and a security/accessibility review. No deployment, 99% availability, WCAG conformance or concurrency target is claimed.
 
-PHP-FPM must honor `public/.user.ini` (10 MB file / 12 MB request limits); otherwise configure those limits in the site pool. Set the web-server request limit to at least 12 MB. DOCX/PPTX validation requires PHP zip and DOM extensions. Material replacement/removal and historical uploader/size backfill remain pending.
+Valet serves this site through a front controller outside the application, so `public/.user.ini` is **not** honoured; the limits live in the site's nginx server block as `fastcgi_param PHP_VALUE` plus `client_max_body_size`. DOCX/PPTX validation requires the PHP zip and DOM extensions. Historical uploader/size backfill remains pending.
+
+## Video lectures
+
+Course video lectures are uploaded, stored privately and streamed through authorized routes with HTTP Range support. **MP4 with H.264 video and AAC audio only**; the container is validated by parsing its box tree in PHP, so FFmpeg/ffprobe is not required and is not used. There is no transcoding, no automatic thumbnailing and no speech-to-text — posters and transcripts are uploaded by staff.
+
+The video size limit (`VIDEO_MAX_KILOBYTES`, default 500 MB) is **separate from and does not raise** the 10 MB study-material limit. PHP and web-server limits must be raised for this site only; see `docs/video-operations.md`, which also covers private delivery, the optional `X-Accel-Redirect` path, progress/completion rules and what is deliberately not implemented.

@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\SaveCourseRequest;
-use App\Http\Requests\UploadMaterialRequest;
 use App\Models\Announcement;
 use App\Models\Assignment;
 use App\Models\Course;
@@ -20,7 +19,6 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Facades\Storage;
 
 class CourseController extends Controller
 {
@@ -36,7 +34,7 @@ class CourseController extends Controller
         $courseIds = $courses->pluck('id');
         $upcoming = Assignment::with('course')->whereIn('course_id', $courseIds)->where('due_at', '>=', now())->orderBy('due_at')->limit(5)->get();
         $quizzes = DB::table('quizzes')->whereIn('course_id', $courseIds)->where('status', 'published')->where('closes_at', '>', now())->orderBy('opens_at')->limit(5)->get();
-        $materials = Material::with('course')->whereIn('course_id', $courseIds)->latest()->limit(5)->get();
+        $materials = Material::with('course')->whereIn('course_id', $courseIds)->where('status', 'active')->latest()->limit(5)->get();
         $announcements = Announcement::visibleTo($user)->with('course')->latest()->limit(5)->get();
         $pendingReviews = $user->role !== 'student' ? Submission::whereHas('assignment', fn ($query) => $query->whereIn('course_id', $courseIds))->where('status', 'submitted')->count() : 0;
         $activeUsers = $user->role === 'admin' ? User::where('is_active', true)->count() : null;
@@ -106,15 +104,17 @@ class CourseController extends Controller
     public function show(Request $r, Course $course)
     {
         Gate::authorize('view', $course);
-        $course->load(['lessons', 'materials', 'assignments.submissions' => fn ($query) => $query->where('user_id', $r->user()->id), 'announcements']);
         $manage = Gate::allows('manage', $course);
+        $course->load(['lessons', 'materials' => fn ($query) => $query->when(! $manage, fn ($active) => $active->where('status', 'active')), 'assignments.submissions' => fn ($query) => $query->where('user_id', $r->user()->id), 'announcements']);
         $completed = LessonCompletion::where('user_id', $r->user()->id)->pluck('lesson_id')->all();
         $enrollments = collect();
+        $materialRevisions = collect();
         if ($manage) {
             $enrollments = $course->enrollments()->with(['user' => fn ($query) => $query->withCount(['lessonCompletions as completed_lessons' => fn ($completion) => $completion->whereIn('lesson_id', $course->lessons->pluck('id'))])])->paginate(30, ['*'], 'roster_page');
+            $materialRevisions = DB::table('material_revisions')->leftJoin('users', 'users.id', '=', 'material_revisions.replaced_by')->whereIn('material_id', $course->materials->pluck('id'))->select('material_revisions.*', 'users.name as replaced_by_name')->orderByDesc('material_revisions.version')->get()->groupBy('material_id');
         }
 
-        return view('courses.show', compact('course', 'manage', 'completed', 'enrollments'));
+        return view('courses.show', compact('course', 'manage', 'completed', 'enrollments', 'materialRevisions'));
     }
 
     public function enroll(Request $request, Course $course): RedirectResponse
@@ -157,38 +157,5 @@ class CourseController extends Controller
         }
 
         return back()->with('status', 'Progress updated.');
-    }
-
-    public function material(UploadMaterialRequest $r, Course $course)
-    {
-        Gate::authorize('manage', $course);
-        $data = $r->validated();
-        $file = $r->file('file');
-        $path = $file->store('materials', 'local');
-        abort_unless($path, 500, 'Upload failed.');
-        try {
-            DB::transaction(function () use ($r, $course, $data, $file, $path) {
-                DB::table('lms_write_locks')->where('id', 1)->lockForUpdate()->first();
-                Gate::forUser($r->user()->fresh())->authorize('manage', $course->fresh());
-                $course->materials()->create(['uploader_id' => $r->user()->id, 'size_bytes' => $file->getSize(), 'uploaded_at' => now(), 'title' => $data['title'], 'lesson_id' => $data['lesson_id'] ?? null, 'path' => $path, 'original_name' => $file->getClientOriginalName(), 'format' => strtolower($file->getClientOriginalExtension())]);
-            });
-        } catch (\Throwable $e) {
-            Storage::disk('local')->delete($path);
-            throw $e;
-        }
-
-        if ($r->expectsJson()) {
-            return response()->json(['redirect' => route('courses.show', $course)]);
-        }
-
-        return back()->with('status', 'Material uploaded securely. PDF, DOCX and PPTX downloads are supported; AI extraction supports TXT and Markdown only.');
-    }
-
-    public function download(Material $material)
-    {
-        Gate::authorize('view', $material->course);
-        abort_unless(Storage::disk('local')->exists($material->path), 404);
-
-        return Storage::disk('local')->download($material->path, $material->original_name, ['X-Content-Type-Options' => 'nosniff']);
     }
 }

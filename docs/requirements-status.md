@@ -1,6 +1,8 @@
 # EduLearn requirements reconciliation
 
-Baseline inspected: 12 September 2026. Status describes source implementation, not production acceptance. Test and runtime evidence is recorded separately in `validation.md`.
+Baseline re-verified against code, schema and a full MySQL test run on **24 September 2026**. Status describes source implementation and automated-test evidence, not production acceptance. Runtime evidence is in `validation.md`; video specifics are in `video-operations.md`.
+
+Suite at the time of writing: **89 tests, 951 assertions, all passing** on MySQL (`acumen_university_test`). The pre-existing baseline was 62 tests / 687 assertions plus one failing generated placeholder.
 
 ## Architecture and compatibility
 
@@ -26,15 +28,15 @@ The specification both permits retaining the current frontend and requests Boots
 | Course title/description/status/instructor | Implemented | Existing management screens, primary and additional instructors, archive retains learning records |
 | Unique course code | Implemented | Unique database constraint, normalized form validation, preserved-record backfill, code search and course display |
 | Administrator-managed course enrollment | Implemented | Audited access screen and unique online enrollment constraint |
-| PDF/DOCX/PPTX materials, 10 MB, complete metadata | Partial | 10 MB PDF/DOCX/PPTX/TXT/Markdown private uploads, Office content validation, uploader/size/time metadata and progress feedback implemented. Historical unknown uploader/size remain null. Safe replacement/removal remains |
+| PDF/DOCX/PPTX materials, 10 MB, complete metadata | Implemented and tested | 10 MB private uploads, Office content validation, uploader/size/time metadata, progress feedback. Replacement with optimistic version checks, retained file revisions, staff-only revision downloads, archival that withdraws learner access and blocks new AI generation while preserving existing notes. `MaterialController`, `2026_09_15_070733_add_material_revision_history`, `MaterialLifecycleTest` (4 tests). Historical unknown uploader/size legitimately remain null |
 | Assignment authoring and private submissions | Partial | Existing title/instructions/deadline/marks, text/file submissions and private downloads; draft publication, attachments and new strict deadline policy remain |
 | Reject late submissions | Implemented | Server rejects at or after the effective UTC deadline; individual approved extensions apply |
 | Submission history and replacement policy | Implemented | Ungraded work may be replaced before deadline; retained text/private file revisions, authorized history downloads, duplicate-content idempotency and form version guard |
 | Rubrics, marks, feedback and grade corrections | Implemented | Bounded decimal marks, criterion totals, immutable rubric after first submission, grade history and stale-form protection |
-| Result draft/publication states | Missing | Legacy grading exposes marks immediately; publication/confirmation and correction-release workflow are milestone 4 |
+| Result draft/publication states | Implemented | `AssessmentWorkflow::publishResult`, `result_publications`, published snapshots, corrections stay draft until republished. `ResultPublicationTest` |
 | Configurable grading/rounding policy | Missing | No course grading-policy administration yet |
 | Timed MCQ quizzes | Implemented | Draft review, immutable publication, one resumable attempt, saved answers, server deadline and objective scoring |
-| Short-answer quizzes | Missing | Manual review and result publication needed |
+| Short-answer quizzes | Implemented | Authoring, manual bounded decimal grading, review audit and explicit publication. `ShortAnswerQuizTest`, `QuizWorkflow::review` |
 | Visible countdown/configurable attempt limit | Partial | Visible countdown and automatic server finalization request added; server remains authoritative. Configurable attempt limits remain |
 | Expired quiz finalization | Partial | Idempotent scheduled command exists; host scheduler supervision must be configured and verified |
 | Course announcements | Partial | Scoped course announcements exist; complete author/publication metadata and unread tracking remain |
@@ -64,6 +66,51 @@ The specification both permits retaining the current frontend and requests Boots
 - Availability target: 99% per calendar month, excluding only preannounced approved maintenance. Maintenance timezone, weekday 02:00–04:00 window and 24-hour notice remain configurable requirements, not implemented scheduling.
 - Production deployment and destructive changes require explicit authorization. The prior online-scope request authorized campus removal; its conversion has a separate backed-up retention plan. No Git push/pull/fetch or deployment is authorized.
 
+## Video lectures (new core requirement)
+
+| Requirement | Status | Evidence |
+| --- | --- | --- |
+| Authoring by administrators and assigned instructors | Implemented and tested | `VideoLectureController`, `VideoLectureWorkflow`, course `manage` gate |
+| Course/lesson association, title, description, display order | Implemented and tested | `video_lectures` schema, `updateDetails` |
+| Draft / published / archived states with timestamps and actors | Implemented and tested | `changeStatus`; publication blocked unless media is `ready` |
+| Upload metadata: uploader, filename, MIME, container, size, duration, processing status | Implemented and tested | Recorded from `VideoProbe` at upload |
+| Safe replacement with version retention | Implemented and tested | `video_lecture_revisions`, optimistic `version` check, staff-only revision downloads |
+| Optional poster/thumbnail | Implemented | Uploaded and content-verified image; **not** generated from a frame (needs FFmpeg) |
+| Captions and transcript management | Implemented and tested | Validated WebVTT, plain-text transcript, `video_lecture_tracks` |
+| Documented supported formats | Implemented | MP4 / H.264 / AAC only — `docs/video-operations.md` |
+| Media validated with an appropriate tool | Implemented and tested | `VideoProbe` parses the ISO-BMFF box tree in pure PHP. **ffprobe is not installed**; no subprocess is spawned and no filename reaches a shell |
+| Transcoding | **Not implemented** | Documented. `processing_status` exists so a queued stage can be added without migration |
+| Separate configurable video limit, document limit unchanged | Implemented and tested | `config/video.php` (500 MB default); the 10 MB material limit is untouched and separately asserted |
+| Aligned app/PHP/web-server limits | **Blocked on external configuration** | Written into `~/.config/valet/Nginx/lms.test`; nginx has **not** been reloaded (needs sudo), so the live site still enforces 10M |
+| Resumable/chunked upload | **Not implemented** | Single request with progress, cancellation and safe retry. Not claimed as supported |
+| Private storage, generated filenames, no public URLs | Implemented and tested | Private disk, 32-hex names, authorized routes only |
+| Server-authorized playback incl. deactivation and revocation | Implemented and tested | Active account + published course + enrollment + published/ready lecture |
+| HTTP Range / HEAD, 206 and 416 | Implemented and tested | `PrivateMediaStream`; verified in tests **and** live over HTTPS on the Valet site |
+| No whole-file buffering | Implemented | 256 KB chunked streaming from a file handle |
+| Optional internal nginx delivery | Implemented | `VIDEO_X_ACCEL_PREFIX`, off by default |
+| Responsive, keyboard-accessible player with speed and captions | Implemented | Native controls + explicit speed select, `aria-live` states, 16:9 frame, no autoplay. **Not** yet verified with assistive technology |
+| Playback position saved and resumed | Implemented and tested | `video_lecture_progress` |
+| Completion excludes seeking; no double counting | Implemented and tested | Credit = min(client delta, new forward ground, wall-clock elapsed x 2.5), first report additionally capped. A live check found a short-lecture hole, which was fixed and regression-tested |
+| Viewing progress distinct from mastery | Implemented | Kept separate from lesson-completion course progress |
+| Learner records private; staff see their course | Implemented and tested | Progress roster on the lecture page |
+| Transcript as an AI note source | Implemented and tested | `source_type=lecture`, reuses quota/queue/authorization. Automatic transcription is **not** claimed |
+| External embeds | Out of scope | Uploaded private playback is the delivered core; no provider allowlist was added |
+| DRM | Out of scope, explicitly | Access is controlled; redistribution of delivered bytes is not preventable |
+
+## Document text extraction
+
+| Source | Status |
+| --- | --- |
+| Lesson text, UTF-8 TXT, Markdown | Implemented and tested |
+| DOCX | Implemented and tested — WordprocessingML runs, paragraph order preserved |
+| PPTX | Implemented and tested — DrawingML runs, slide order preserved |
+| PDF (text-based) | Implemented and tested — raw and Flate streams, `Tj`/`TJ`/`'`/`"` operators, escapes |
+| Scanned/image-only PDF | Reported as needing OCR. **No OCR is implemented** |
+| Encrypted PDF | Detected and reported |
+| Empty/malformed documents, oversized extraction | Detected and reported |
+
+Evidence: `App\Services\DocumentText`, `DocumentExtractionTest` (9 tests).
+
 ## Milestone plan
 
 1. **Accounts and dashboard foundation:** provision/update/deactivate, lockout, profiles/passwords, role redirects, access revocation, useful database-backed dashboard sections. Implemented in source; see validation results.
@@ -77,3 +124,23 @@ The specification both permits retaining the current frontend and requests Boots
 ## Current execution gate
 
 Milestone one is implemented and tested on isolated databases. Following explicit user approval, the scope conversion and account migrations were applied to the local MySQL database. Valet browser smoke checks passed at mobile, tablet and desktop widths. Real email delivery and full accessibility acceptance remain unverified.
+
+
+## Still outstanding (as of 24 September 2026)
+
+Not started or incomplete, stated plainly so the checklist is not read as completion:
+
+| Item | Status |
+| --- | --- |
+| Assignment draft/published workflow and instructor attachments | **Missing** |
+| Assignment/submission dashboard notifications | **Missing** |
+| Configurable quiz attempt limits | **Missing** — policy remains exactly one attempt |
+| Configurable grading and rounding policy | **Missing** |
+| Published-result dashboard summaries and role-scoped reports | **Missing** |
+| Instructor AI quiz-question generation | **Missing** |
+| Queue/scheduler supervision on a real host (systemd/Supervisor) | **Not configured** |
+| SMTP delivery verification | **Not verified** — mailer is `log` locally |
+| nginx reload to apply the video upload limits | **Blocked** — needs sudo |
+| Accessibility conformance (WCAG 2.1 AA) | **Not verified** — no assistive-technology or visual responsive testing was performed |
+| Performance and availability targets | **Not measured** — no load test was run |
+| Real external AI inference | **Not proven** — provider paths are covered only by mocked HTTP and an auth-only connection check |

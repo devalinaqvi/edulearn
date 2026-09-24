@@ -7,6 +7,7 @@ use App\Models\Lesson;
 use App\Models\Material;
 use App\Models\StudyNote;
 use App\Models\User;
+use App\Models\VideoLecture;
 use App\Services\AiSettings;
 use App\Services\SourceText;
 use Illuminate\Http\Request;
@@ -25,8 +26,8 @@ class NoteController extends Controller
     {
         $configuration = app(AiSettings::class)->current();
         abort_unless($configuration->enabled, 503, 'AI features are currently disabled.');
-        $data = $r->validate(['source_type' => ['required', Rule::in(['lesson', 'material'])], 'source_id' => 'required|integer']);
-        $source = ($data['source_type'] === 'lesson' ? Lesson::class : Material::class)::findOrFail($data['source_id']);
+        $data = $r->validate(['source_type' => ['required', Rule::in(['lesson', 'material', 'lecture'])], 'source_id' => 'required|integer']);
+        $source = $this->sourceModel($data['source_type'])::findOrFail($data['source_id']);
         Gate::authorize('participate', $source->course);
         $text = $extractor->extract($source);
         $key = hash('sha256', $data['source_type'].':'.$source->id.':'.$text);
@@ -39,13 +40,32 @@ class NoteController extends Controller
             $count = $user->ai_usage_date === today()->toDateString() ? $user->ai_usage_count : 0;
             abort_if($count >= $configuration->daily_limit, 429, 'Your daily study-note limit has been reached. Try again tomorrow (UTC).');
             $user->forceFill(['ai_usage_date' => today()->toDateString(), 'ai_usage_count' => $count + 1])->save();
-            $note = StudyNote::create(['user_id' => $user->id, 'course_id' => $source->course_id, $data['source_type'].'_id' => $source->id, 'source_title' => $source->title, 'title' => $source->title.' — study notes', 'request_key' => $key, 'provider' => $configuration->provider, 'model_name' => $configuration->model, 'ai_configuration_version' => $configuration->version]);
+            $note = StudyNote::create(['user_id' => $user->id, 'course_id' => $source->course_id, $this->sourceColumn($data['source_type']) => $source->id, 'source_title' => $source->title, 'title' => $source->title.' — study notes', 'request_key' => $key, 'provider' => $configuration->provider, 'model_name' => $configuration->model, 'ai_configuration_version' => $configuration->version]);
             GenerateStudyNotes::dispatch($note->id); // Database queue insertion shares this transaction.
 
             return $note;
         });
 
         return redirect()->route('notes.show', $note)->with('status', 'Your note request is saved. Duplicate requests open the existing note.');
+    }
+
+    /** @return class-string<Lesson|Material|VideoLecture> */
+    private function sourceModel(string $type): string
+    {
+        return match ($type) {
+            'lesson' => Lesson::class,
+            'lecture' => VideoLecture::class,
+            default => Material::class,
+        };
+    }
+
+    private function sourceColumn(string $type): string
+    {
+        return match ($type) {
+            'lesson' => 'lesson_id',
+            'lecture' => 'video_lecture_id',
+            default => 'material_id',
+        };
     }
 
     private function own(Request $r, StudyNote $note): void
@@ -88,10 +108,10 @@ class NoteController extends Controller
             }
             $configuration = app(AiSettings::class)->current();
             abort_unless($configuration->enabled, 503, 'AI features are currently disabled.');
-            $source = $note->lesson ?? $note->material;
+            $source = $note->source();
             abort_unless($source, 404);
             $text = $extractor->extract($source);
-            $key = hash('sha256', ($note->lesson_id ? 'lesson:' : 'material:').$source->id.':'.$text);
+            $key = hash('sha256', $note->sourceType().':'.$source->id.':'.$text);
             $existing = StudyNote::where('user_id', $user->id)->where('request_key', $key)->where('id', '!=', $note->id)->first();
             if ($existing) {
                 return $existing;
