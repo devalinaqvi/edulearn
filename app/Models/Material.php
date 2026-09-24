@@ -6,11 +6,16 @@ use Illuminate\Database\Eloquent\Model;
 
 class Material extends Model
 {
-    protected $fillable = ['uploader_id', 'size_bytes', 'uploaded_at', 'course_id', 'lesson_id', 'title', 'path', 'original_name', 'format'];
+    protected $fillable = ['uploader_id', 'size_bytes', 'uploaded_at', 'course_id', 'lesson_id', 'title', 'path', 'original_name', 'format', 'version', 'status', 'archived_at', 'archived_by'];
 
     protected function casts(): array
     {
-        return ['uploaded_at' => 'datetime', 'size_bytes' => 'integer'];
+        return ['uploaded_at' => 'datetime', 'archived_at' => 'datetime', 'size_bytes' => 'integer', 'version' => 'integer'];
+    }
+
+    public function isArchived(): bool
+    {
+        return $this->status === 'archived';
     }
 
     public function uploader()

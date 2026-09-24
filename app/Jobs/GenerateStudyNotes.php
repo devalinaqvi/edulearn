@@ -54,13 +54,13 @@ class GenerateStudyNotes implements ShouldQueue
         }
         $note->update(['status' => 'processing', 'error' => null]);
         try {
-            $source = $note->lesson ?? $note->material;
+            $source = $note->source();
             if (! $source) {
                 throw new \RuntimeException('Source unavailable.');
             }
             $text = $extractor->extract($source);
             // Refuse a changed source rather than silently generating from a different version.
-            $key = hash('sha256', ($note->lesson_id ? 'lesson:' : 'material:').$source->id.':'.$text);
+            $key = hash('sha256', $note->sourceType().':'.$source->id.':'.$text);
             if (! hash_equals($note->request_key, $key)) {
                 $note->update(['status' => 'failed', 'error' => 'The source changed. Request new notes from the course.']);
 

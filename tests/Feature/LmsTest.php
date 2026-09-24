@@ -302,11 +302,11 @@ class LmsTest extends TestCase
         $this->enroll($u, $c);
         $n = $this->requestNote($u, $this->lesson($c));
         $job = new GenerateStudyNotes($n->id);
-        $job->handle(new SourceText, new NotesProvider);
+        $job->handle(app(SourceText::class), new NotesProvider);
         $this->assertSame('completed', $n->refresh()->status);
         $this->assertStringContainsString('DEVELOPMENT MOCK', $n->content);
         $stamp = $n->generated_at;
-        $job->handle(new SourceText, new NotesProvider);
+        $job->handle(app(SourceText::class), new NotesProvider);
         $this->assertDatabaseCount('study_notes', 1);
         $this->assertEquals($stamp, $n->refresh()->generated_at);
     }
@@ -319,12 +319,12 @@ class LmsTest extends TestCase
         $l = $this->lesson($c);
         $n = $this->requestNote($u, $l);
         $c->update(['status' => 'draft']);
-        (new GenerateStudyNotes($n->id))->handle(new SourceText, new NotesProvider);
+        (new GenerateStudyNotes($n->id))->handle(app(SourceText::class), new NotesProvider);
         $this->assertSame('failed', $n->refresh()->status);
         $c->update(['status' => 'published']);
         $n->update(['status' => 'pending']);
         $l->update(['body' => 'Changed course text']);
-        (new GenerateStudyNotes($n->id))->handle(new SourceText, new NotesProvider);
+        (new GenerateStudyNotes($n->id))->handle(app(SourceText::class), new NotesProvider);
         $this->assertSame('failed', $n->refresh()->status);
         $this->assertStringContainsString('source changed', $n->error);
     }
@@ -339,7 +339,7 @@ class LmsTest extends TestCase
         $provider->shouldReceive('generate')->andThrow(new \RuntimeException('SECRET provider data'));
         $job = new GenerateStudyNotes($n->id);
         try {
-            $job->handle(new SourceText, $provider);
+            $job->handle(app(SourceText::class), $provider);
             $this->fail('Expected retry');
         } catch (\RuntimeException $e) {
             $this->assertSame('Study notes generation temporarily failed.', $e->getMessage());
