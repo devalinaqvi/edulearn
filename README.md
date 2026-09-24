@@ -81,6 +81,18 @@ Production prerequisites include real mail, HTTPS/secure cookies, debug disabled
 
 Valet serves this site through a front controller outside the application, so `public/.user.ini` is **not** honoured; the limits live in the site's nginx server block as `fastcgi_param PHP_VALUE` plus `client_max_body_size`. DOCX/PPTX validation requires the PHP zip and DOM extensions. Historical uploader/size backfill remains pending.
 
+## AI providers
+
+The model field is a dropdown populated by pulling each provider's catalogue on demand
+(OpenRouter's public zero-price list; OpenAI's model list, which needs a saved credential first).
+A withdrawn model is rejected on save rather than silently replaced, and a paid model is never
+reachable.
+
+**Zero data retention defaults to on, and no zero-price OpenRouter model currently offers a
+zero-retention endpoint**, so free models fail until an administrator deliberately turns that
+constraint off. See `docs/ai-providers.md` for the verified working configuration and for how
+failures are classified in the admin activity log.
+
 ## Video lectures
 
 Course video lectures are uploaded, stored privately and streamed through authorized routes with HTTP Range support. **MP4 with H.264 video and AAC audio only**; the container is validated by parsing its box tree in PHP, so FFmpeg/ffprobe is not required and is not used. There is no transcoding, no automatic thumbnailing and no speech-to-text — posters and transcripts are uploaded by staff.

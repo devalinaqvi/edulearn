@@ -12,6 +12,6 @@ class AiConfiguration extends Model
 
     protected function casts(): array
     {
-        return ['enabled' => 'boolean', 'api_key' => 'encrypted', 'version' => 'integer', 'daily_limit' => 'integer', 'max_input_chars' => 'integer', 'max_output_tokens' => 'integer'];
+        return ['enabled' => 'boolean', 'require_zero_retention' => 'boolean', 'api_key' => 'encrypted', 'version' => 'integer', 'daily_limit' => 'integer', 'max_input_chars' => 'integer', 'max_output_tokens' => 'integer'];
     }
 }

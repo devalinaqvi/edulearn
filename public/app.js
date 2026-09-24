@@ -139,3 +139,32 @@ if (player) {
  player.addEventListener('seeking', () => { lastReported = player.currentTime; });
  document.addEventListener('visibilitychange', () => { if (document.hidden) { report(true); } });
 }
+
+// AI administration: show only the selected provider's models, keeping the full list in the DOM
+// so the form still works without JavaScript.
+const aiProvider = document.querySelector('[data-ai-provider]');
+const aiModel = document.querySelector('[data-ai-model]');
+if (aiProvider && aiModel) {
+ const groups = Array.from(aiModel.querySelectorAll('optgroup'));
+ const placeholder = aiModel.querySelector('option[value=""]');
+ const apply = () => {
+  const provider = aiProvider.value;
+  for (const group of groups) {
+   const matches = group.dataset.provider === provider;
+   group.hidden = !matches;
+   group.disabled = !matches;
+   for (const option of group.querySelectorAll('option')) option.hidden = !matches;
+  }
+  if (placeholder) placeholder.hidden = provider !== 'mock';
+  const selected = aiModel.selectedOptions[0];
+  // If the current choice belongs to another provider, fall back to the first valid one.
+  if (provider === 'mock') {
+   aiModel.value = '';
+  } else if (!selected || selected.dataset.provider !== provider) {
+   const first = aiModel.querySelector('option[data-provider="' + provider + '"]:not([disabled])');
+   aiModel.value = first ? first.value : '';
+  }
+ };
+ aiProvider.addEventListener('change', apply);
+ apply();
+}
