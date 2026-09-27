@@ -20,6 +20,7 @@ class AiAdminController extends Controller
         abort_unless($request->user()->role === 'admin', 403);
         $configuration = $settings->current();
         $hasKey = (bool) $configuration->api_key;
+        $credentialUnreadable = $configuration->credentialUnreadable;
         $safe = $configuration->toArray();
         $catalogues = [
             'openrouter' => Cache::get('ai.models.openrouter', []),
@@ -31,7 +32,7 @@ class AiAdminController extends Controller
         ];
         $usage = DB::table('ai_usage_events')->orderByDesc('id')->paginate(30);
 
-        return view('admin.ai', compact('safe', 'hasKey', 'catalogues', 'refreshedAt', 'usage'));
+        return view('admin.ai', compact('safe', 'hasKey', 'credentialUnreadable', 'catalogues', 'refreshedAt', 'usage'));
     }
 
     public function update(UpdateAiConfigurationRequest $request, AiSettings $settings): RedirectResponse
@@ -65,6 +66,10 @@ class AiAdminController extends Controller
                 throw ValidationException::withMessages(['api_key' => 'Configure a server-side API credential before enabling this provider.']);
             }
             $values = collect($data)->except(['remove_key', 'allow_paid', 'version', 'api_key', 'require_zero_retention'])->all() + ['api_key' => $key, 'require_zero_retention' => $request->boolean('require_zero_retention'), 'version' => $current->version + 1];
+            if ($current->credentialUnreadable) {
+                // Replace unreadable ciphertext inside the transaction before Eloquent compares encrypted originals.
+                DB::table('ai_configurations')->where('id', 1)->update(['api_key' => null]);
+            }
             $configuration = AiConfiguration::firstOrNew(['id' => 1]);
             $configuration->forceFill(['id' => 1])->fill($values)->save();
             DB::table('account_activity')->insert(['user_id' => $request->user()->id, 'actor_id' => $request->user()->id, 'event' => 'ai_settings_updated', 'details' => json_encode(['provider' => $data['provider'], 'enabled' => $request->boolean('enabled'), 'require_zero_retention' => $request->boolean('require_zero_retention'), 'version' => $current->version + 1]), 'created_at' => now()]);
@@ -83,7 +88,7 @@ class AiAdminController extends Controller
             return back()->withErrors(['provider' => $exception->getMessage()]);
         }
 
-        return back()->with('status', $models
+        return back()->with('catalog_provider', $provider)->with('status', $models
             ? 'Pulled '.count($models).' '.($provider === 'openrouter' ? 'zero-price OpenRouter' : 'OpenAI').' models.'
             : 'The provider returned no selectable models.');
     }

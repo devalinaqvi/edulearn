@@ -6,6 +6,8 @@ use App\Models\AiConfiguration;
 use App\Models\User;
 use App\Services\NotesProvider;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Env;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -113,12 +115,15 @@ class AiAdministrationTest extends TestCase
 
         // Save a credential, then the OpenAI catalogue pulls and excludes non-text models.
         $this->put(route('admin.ai.update'), $this->payload())->assertRedirect();
+        $this->post(route('admin.ai.models'), ['provider' => 'openai'])->assertSessionHasErrors('provider');
+        Http::assertNotSent(fn ($request) => $request->url() === 'https://api.openai.com/v1/models');
+        $this->put(route('admin.ai.update'), array_replace($this->payload(), ['version' => 1, 'provider' => 'openai', 'model' => 'gpt-4.1-mini', 'api_key' => 'openai-test-key', 'allow_paid' => 1]))->assertRedirect()->assertSessionHasNoErrors();
         $this->post(route('admin.ai.models'), ['provider' => 'openai'])->assertRedirect()->assertSessionHas('status');
         $this->get(route('admin.ai'))->assertOk()
             ->assertSee('gpt-4.1-mini')->assertSee('gpt-5')
             ->assertDontSee('text-embedding-3-small')->assertDontSee('whisper-1')->assertDontSee('dall-e-3');
 
-        $this->assertSame('openrouter', $this->refresh_provider());
+        $this->assertSame('openai', $this->refresh_provider());
     }
 
     private function refresh_provider(): string
@@ -164,5 +169,86 @@ class AiAdministrationTest extends TestCase
         $this->post(route('admin.ai.models'), ['provider' => 'openai'])->assertRedirect();
         $this->put(route('admin.ai.update'), $paid + ['model' => 'gpt-9-imaginary', 'version' => 1])->assertSessionHasErrors('model');
         $this->assertSame('gpt-4.1-mini', AiConfiguration::findOrFail(1)->model);
+    }
+
+    public function test_pulling_openrouter_selects_that_provider_without_changing_saved_configuration(): void
+    {
+        $this->catalog();
+        config(['study.provider' => 'mock']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin)->from(route('admin.ai'))
+            ->post(route('admin.ai.models'), ['provider' => 'openrouter'])
+            ->assertRedirect(route('admin.ai'))->assertSessionHas('catalog_provider', 'openrouter');
+        $this->get(route('admin.ai'))->assertOk()
+            ->assertSee('value="openrouter" selected', false)->assertSee('Free model');
+        $this->assertDatabaseCount('ai_configurations', 0);
+    }
+
+    public function test_copied_unreadable_credential_can_be_replaced_without_exposing_it(): void
+    {
+        $this->catalog();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin)->put(route('admin.ai.update'), $this->payload())->assertRedirect();
+        DB::table('ai_configurations')->where('id', 1)->update(['api_key' => 'unreadable-ciphertext']);
+
+        $this->get(route('admin.ai'))->assertOk()->assertSee('cannot be decrypted')
+            ->assertDontSee('unreadable-ciphertext');
+        $this->assertDatabaseHas('ai_configurations', ['api_key' => 'unreadable-ciphertext']);
+        $this->put(route('admin.ai.update'), array_replace($this->payload(), ['version' => 1, 'api_key' => 'replacement-key']))
+            ->assertRedirect()->assertSessionHasNoErrors();
+        $this->assertSame('replacement-key', AiConfiguration::findOrFail(1)->api_key);
+    }
+
+    public function test_catalog_connection_failure_preserves_last_catalog_and_explains_server_setup(): void
+    {
+        Http::preventStrayRequests();
+        Http::fake(['openrouter.ai/api/v1/models' => Http::failedConnection()]);
+        Cache::put('ai.models.openrouter', ['existing:free' => 'Existing model'], 60);
+        $this->actingAs(User::factory()->create(['role' => 'admin']))
+            ->post(route('admin.ai.models'), ['provider' => 'openrouter'])
+            ->assertSessionHasErrors(['provider' => 'Cannot reach the OpenRouter catalog. Check this server’s internet connection, DNS, and PHP cURL/OpenSSL CA certificates. Keep TLS verification enabled.']);
+        $this->assertSame(['existing:free' => 'Existing model'], Cache::get('ai.models.openrouter'));
+        Http::assertSentCount(1);
+    }
+
+    public function test_rate_limit_is_not_misreported_as_a_retention_policy_failure(): void
+    {
+        $this->catalog();
+        $this->actingAs(User::factory()->create(['role' => 'admin']))
+            ->put(route('admin.ai.update'), $this->payload())->assertRedirect();
+        Http::fake(['openrouter.ai/api/v1/chat/completions' => Http::response(['error' => ['message' => 'Rate limit exceeded']], 429)]);
+        try {
+            (new NotesProvider)->generate('Source', 'openrouter');
+            $this->fail('Generation should fail on rate limiting.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('AI generation failed. No paid fallback was attempted.', $exception->getMessage());
+        }
+        $detail = DB::table('ai_usage_events')->where('status', 'failed')->value('detail');
+        $this->assertStringContainsString('rate-limited', $detail);
+        $this->assertStringNotContainsString('retention', $detail);
+    }
+
+    public function test_environment_defaults_use_the_selected_providers_credential_and_model(): void
+    {
+        $environment = Env::getRepository();
+        $values = ['AI_PROVIDER' => 'openrouter', 'OPENROUTER_API_KEY' => 'router-test-key', 'OPENROUTER_MODEL' => 'test:free', 'OPENAI_API_KEY' => 'openai-test-key', 'OPENAI_MODEL' => 'gpt-test'];
+        $previous = [];
+        foreach ($values as $name => $value) {
+            $previous[$name] = $environment->get($name);
+            $environment->set($name, $value);
+        }
+        try {
+            $configuration = require base_path('config/study.php');
+            $this->assertSame('router-test-key', $configuration['api_key']);
+            $this->assertSame('test:free', $configuration['model']);
+            $environment->set('AI_PROVIDER', 'openai');
+            $configuration = require base_path('config/study.php');
+            $this->assertSame('openai-test-key', $configuration['api_key']);
+            $this->assertSame('gpt-test', $configuration['model']);
+        } finally {
+            foreach ($previous as $name => $value) {
+                $value === null ? $environment->clear($name) : $environment->set($name, $value);
+            }
+        }
     }
 }

@@ -94,11 +94,12 @@
 
 <details class="panel">
 <summary>Replace the recording</summary>
-<form data-upload method="post" enctype="multipart/form-data" action="{{ route('lectures.media',$lecture) }}">@csrf<input type="hidden" name="version" value="{{ $lecture->version }}">
+<form data-upload data-max-upload-bytes="{{ $uploadMaxBytes }}" method="post" enctype="multipart/form-data" action="{{ route('lectures.media',$lecture) }}">@csrf<input type="hidden" name="version" value="{{ $lecture->version }}">
 <label>Replacement MP4<input type="file" name="file" accept="video/mp4,.mp4,.m4v" required>
 </label>
 <label>Reason<input name="reason" required maxlength="1000">
 </label>
+<p class="muted">This server’s PHP/application upload ceiling is {{ round($uploadMaxBytes / 1048576, 1) }} MB. The web server may impose a lower limit. If it is below your recording size, ask the administrator to configure PHP upload_max_filesize/post_max_size and the web server request limit, then restart the server.</p>
 <progress data-upload-progress max="100" value="0" aria-label="Upload progress" hidden></progress><p data-upload-status role="status" aria-live="polite"></p><button class="button secondary">Replace recording</button>
 </form>
 @if($revisions->isNotEmpty())<h4>Previous recordings</h4>

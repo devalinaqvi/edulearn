@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Models\AiConfiguration;
+use Illuminate\Contracts\Encryption\DecryptException;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
@@ -18,7 +20,16 @@ class AiSettings
 
     public function current(): AiConfiguration
     {
-        return AiConfiguration::find(1) ?? new AiConfiguration(['enabled' => true, 'provider' => config('study.provider'), 'model' => config('study.model'), 'api_key' => config('study.api_key'), 'daily_limit' => config('study.daily_limit'), 'max_input_chars' => config('study.max_input_chars'), 'max_output_tokens' => config('study.max_output_tokens'), 'require_zero_retention' => true, 'version' => 0]);
+        $configuration = AiConfiguration::find(1) ?? new AiConfiguration(['enabled' => true, 'provider' => config('study.provider'), 'model' => config('study.model'), 'api_key' => config('study.api_key'), 'daily_limit' => config('study.daily_limit'), 'max_input_chars' => config('study.max_input_chars'), 'max_output_tokens' => config('study.max_output_tokens'), 'require_zero_retention' => true, 'version' => 0]);
+        try {
+            $configuration->api_key;
+        } catch (DecryptException) {
+            // Keep the persisted ciphertext intact until an administrator replaces the key.
+            $configuration->api_key = null;
+            $configuration->credentialUnreadable = true;
+        }
+
+        return $configuration;
     }
 
     /**
@@ -67,7 +78,7 @@ class AiSettings
     private function openRouterModels(): array
     {
         try {
-            $response = Http::acceptJson()->connectTimeout(5)->timeout(15)->get('https://openrouter.ai/api/v1/models');
+            $response = Http::acceptJson()->connectTimeout(5)->timeout(10)->get('https://openrouter.ai/api/v1/models');
             if (! $response->successful() || ! is_array($response->json('data'))) {
                 throw new \RuntimeException;
             }
@@ -91,8 +102,10 @@ class AiSettings
             asort($models);
 
             return $models;
+        } catch (ConnectionException) {
+            throw new \RuntimeException('Cannot reach the OpenRouter catalog. Check this server’s internet connection, DNS, and PHP cURL/OpenSSL CA certificates. Keep TLS verification enabled.');
         } catch (\Throwable) {
-            throw new \RuntimeException('The OpenRouter model catalog is unavailable. Try again later.');
+            throw new \RuntimeException('The OpenRouter model catalog is unavailable or returned an invalid response. Try pulling it again.');
         }
     }
 
@@ -100,7 +113,7 @@ class AiSettings
     private function openAiModels(): array
     {
         $configuration = $this->current();
-        if (! $configuration->api_key) {
+        if ($configuration->provider !== 'openai' || ! $configuration->api_key) {
             throw new \RuntimeException('Save an OpenAI credential before pulling its model catalogue.');
         }
         try {

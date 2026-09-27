@@ -12,6 +12,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
@@ -34,13 +35,15 @@ class VideoLectureController extends Controller
         $progress = VideoLectureProgress::where('user_id', $request->user()->id)
             ->whereIn('video_lecture_id', $lectures->pluck('id'))->get()->keyBy('video_lecture_id');
 
-        return view('lectures.index', compact('course', 'manage', 'lectures', 'progress'));
+        $uploadMaxBytes = min((int) config('video.max_kilobytes') * 1024, UploadedFile::getMaxFilesize());
+
+        return view('lectures.index', compact('course', 'manage', 'lectures', 'progress', 'uploadMaxBytes'));
     }
 
     public function store(Request $request, Course $course): RedirectResponse|JsonResponse
     {
         Gate::authorize('manage', $course);
-        abort_unless($request->hasFile('file'), 422, 'Choose an MP4 lecture recording to upload.');
+        $request->validate(['file' => 'required|file'], ['file.uploaded' => 'PHP could not accept this video. Check upload_max_filesize, post_max_size, temporary upload storage and disk space on this server.']);
         $lecture = $this->workflow->create($request->user(), $course, $request->all(), $request->file('file'));
 
         if ($request->expectsJson()) {
@@ -66,7 +69,9 @@ class VideoLectureController extends Controller
                 ->orderByDesc('version')->get();
         }
 
-        return view('lectures.show', compact('lecture', 'manage', 'progress', 'roster', 'revisions'));
+        $uploadMaxBytes = min((int) config('video.max_kilobytes') * 1024, UploadedFile::getMaxFilesize());
+
+        return view('lectures.show', compact('lecture', 'manage', 'progress', 'roster', 'revisions', 'uploadMaxBytes'));
     }
 
     public function update(Request $request, VideoLecture $lecture): RedirectResponse
@@ -80,7 +85,7 @@ class VideoLectureController extends Controller
     public function replaceMedia(Request $request, VideoLecture $lecture): RedirectResponse|JsonResponse
     {
         Gate::authorize('manage', $lecture->course);
-        abort_unless($request->hasFile('file'), 422, 'Choose a replacement MP4 file.');
+        $request->validate(['file' => 'required|file'], ['file.uploaded' => 'PHP could not accept this video. Check upload_max_filesize, post_max_size, temporary upload storage and disk space on this server.']);
         $this->workflow->replaceMedia($request->user(), $lecture, $request->all(), $request->file('file'));
 
         if ($request->expectsJson()) {
@@ -98,11 +103,15 @@ class VideoLectureController extends Controller
         return back()->with('status', 'Lecture status updated.');
     }
 
-    public function poster(Request $request, VideoLecture $lecture): RedirectResponse
+    public function poster(Request $request, VideoLecture $lecture): RedirectResponse|JsonResponse
     {
         Gate::authorize('manage', $lecture->course);
         abort_unless($request->hasFile('poster'), 422, 'Choose a poster image.');
         $this->workflow->savePoster($request->user(), $lecture, $request->file('poster'));
+
+        if ($request->expectsJson()) {
+            return response()->json(['redirect' => route('lectures.show', $lecture)]);
+        }
 
         return back()->with('status', 'Poster image saved.');
     }

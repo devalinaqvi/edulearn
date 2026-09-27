@@ -19,7 +19,7 @@
 {{ $lectures->withQueryString()->links() }}
 @if($manage)<details class="panel">
 <summary>+ Upload a video lecture</summary>
-<form data-upload method="post" enctype="multipart/form-data" action="{{ route('lectures.store',$course) }}">@csrf<label>Title<input name="title" required maxlength="160">
+<form data-upload data-max-upload-bytes="{{ $uploadMaxBytes }}" method="post" enctype="multipart/form-data" action="{{ route('lectures.store',$course) }}">@csrf<label>Title<input name="title" required maxlength="160">
 </label>
 <label>Description (optional)<textarea name="description" rows="3" maxlength="5000">
 </textarea>
@@ -30,6 +30,7 @@
 <label>Video file<input type="file" name="file" accept="video/mp4,.mp4,.m4v" required>
 </label>
 <p class="muted">MP4 only, with H.264 video and AAC audio · up to {{ round(config('video.max_kilobytes')/1024) }} MB. The file contents are validated on the server; other formats must be re-encoded before upload.</p>
+<p class="muted">This server’s PHP/application upload ceiling is {{ round($uploadMaxBytes / 1048576, 1) }} MB. The web server may impose a lower limit. If it is below your recording size, ask the administrator to configure PHP upload_max_filesize/post_max_size and the web server request limit, then restart the server.</p>
 <progress data-upload-progress max="100" value="0" aria-label="Upload progress" hidden></progress><p data-upload-status role="status" aria-live="polite"></p><button class="button">Upload lecture</button>
 </form>
 </details>@endif

@@ -54,8 +54,7 @@ transcript cannot be used as an AI study-note source, and says so.
 | PHP-FPM (site only) | `max_execution_time` / `max_input_time` | 600 |
 | nginx (site only) | `fastcgi_read_timeout` / `fastcgi_send_timeout` | 600 |
 
-500 MB was chosen after checking runtime capacity: 148 GB free on the storage volume, and a
-500 MB upload is comfortably handled as a single buffered request within a 600 second window.
+Transfer time depends on bandwidth: 500 MiB takes roughly 14 minutes at 5 Mbps before overhead. A 600-second total deadline is insufficient at that speed. The browser does not impose a fixed total upload timeout; configure host request/input timeouts for the expected recording sizes and connection speed.
 Uploads stream to PHP's temporary file and are copied to storage with `writeStream`, so peak
 memory does not scale with file size.
 
@@ -67,20 +66,20 @@ Resumable/chunked upload is **not** implemented. The browser sends one request w
 reporting, cancellation feedback and a safe retry; a failed upload leaves no lecture record and
 no orphaned file.
 
-### Applying the limits (external configuration — still required)
+### Applying the limits on each device
 
-The site-specific limits are already written into `~/.config/valet/Nginx/lms.test`, but **nginx
-has not been reloaded**, so the running site still reports `upload_max_filesize=10M`. Apply them
-with either:
+These limits are external server configuration and are not installed by Git or Laravel. On Windows, edit the `php.ini` loaded by Apache/FastCGI (which can differ from the CLI file):
 
+```ini
+upload_max_filesize = 512M
+post_max_size = 520M
+max_input_time = 1800
+max_execution_time = 600
 ```
-valet restart
-# or
-sudo nginx -t && sudo systemctl reload nginx
-```
 
-Verify afterwards with a temporary `phpinfo()`-style probe, or by uploading a file larger than
-10 MB. Global PHP limits for other Valet sites are deliberately untouched.
+Restart the web server/PHP process. For Nginx, also configure `client_max_body_size 520M` and suitable FastCGI timeouts. For Apache/IIS or a reverse proxy, check the corresponding request size and timeout settings. Check upload temporary-directory permissions and available disk space. Do not expose a permanent phpinfo page.
+
+On the existing Valet host, validate the site configuration and restart Valet after changes; that configuration does not transfer to Windows. Staff upload/replacement forms now show the running PHP/application ceiling and reject files above that known ceiling before sending them. PHP post limits still need headroom for the complete multipart request, and proxy limits may be lower than PHP reports. HTTP 413 and PHP upload failures display actionable feedback. The 10 MB material validation remains independent.
 
 ## Private storage and delivery
 
@@ -125,7 +124,7 @@ delivery switches to `X-Accel-Redirect`; authorization still runs in PHP first. 
 ```nginx
 location /protected-video/ {
     internal;
-    alias /home/devali/Development/applications/AdvanceLearningManagementSystem/storage/app/private/;
+    alias /absolute/path/to/edulearn/storage/app/private/;
 }
 ```
 with `VIDEO_X_ACCEL_PREFIX=/protected-video`.

@@ -6,6 +6,8 @@ use Illuminate\Database\Eloquent\Model;
 
 class AiConfiguration extends Model
 {
+    public bool $credentialUnreadable = false;
+
     protected $guarded = ['id'];
 
     protected $hidden = ['api_key'];

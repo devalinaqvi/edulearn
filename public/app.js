@@ -10,19 +10,26 @@ document.addEventListener('submit', (event) => {
  }
  if (form.hasAttribute('data-upload')) {
   event.preventDefault();
-  const button = event.submitter;
+  const button = event.submitter || form.querySelector('button[type="submit"], button:not([type])');
   const progress = form.querySelector('[data-upload-progress]');
   const status = form.querySelector('[data-upload-status]');
+  const file = form.querySelector('input[type="file"]')?.files?.[0];
+  const maxBytes = Number(form.dataset.maxUploadBytes || 0);
+  if (file && maxBytes > 0 && file.size > maxBytes) {
+   status.textContent = 'This recording exceeds this server’s upload ceiling (' + (maxBytes / 1048576).toFixed(1) + ' MB). Ask the administrator to raise PHP and web server limits, or choose a smaller file.';
+   return;
+  }
   const xhr = new XMLHttpRequest();
   form.dataset.submitting = 'true';
   form.setAttribute('aria-busy', 'true');
-  button.disabled = true;
+  if (button) button.disabled = true;
   progress.hidden = false;
   progress.value = 0;
   status.textContent = 'Uploading…';
   xhr.open('POST', form.action);
   xhr.setRequestHeader('Accept', 'application/json');
-  xhr.timeout = 120000;
+  // Large recordings can take many minutes; do not abort an active transfer after two minutes.
+  xhr.timeout = 0;
   xhr.upload.onprogress = (e) => {
    if (e.lengthComputable) progress.value = Math.round(e.loaded / e.total * 100);
    status.textContent = progress.value === 100 ? 'Upload received. Validating file…' : 'Uploading… ' + progress.value + '%';
@@ -30,7 +37,7 @@ document.addEventListener('submit', (event) => {
   const failed = (message) => {
    delete form.dataset.submitting;
    form.removeAttribute('aria-busy');
-   button.disabled = false;
+   if (button) button.disabled = false;
    status.textContent = message;
   };
   xhr.onload = () => {
@@ -39,7 +46,8 @@ document.addEventListener('submit', (event) => {
    if (xhr.status >= 200 && xhr.status < 300 && result.redirect && new URL(result.redirect, location.href).origin === location.origin) {
     location.assign(result.redirect);
    } else {
-    failed(result.errors ? Object.values(result.errors).flat().join(' ') : 'Upload failed. Check the file and try again.');
+    const messages = {413: 'The server rejected this upload as too large. Ask the administrator to raise PHP post_max_size/upload_max_filesize and the web server request limit.', 419: 'Your session expired. Reload this page and sign in before retrying.', 401: 'Sign in again before uploading.', 403: 'You no longer have permission to upload to this course.', 500: 'The server could not save this upload. Ask the administrator to check private storage permissions, disk space and server logs.'};
+    failed(result.errors ? Object.values(result.errors).flat().join(' ') : (messages[xhr.status] || 'Upload failed. Check the file and try again.'));
    }
   };
   xhr.onerror = () => failed('Connection lost. Check the course before retrying.');
@@ -140,31 +148,35 @@ if (player) {
  document.addEventListener('visibilitychange', () => { if (document.hidden) { report(true); } });
 }
 
-// AI administration: show only the selected provider's models, keeping the full list in the DOM
-// so the form still works without JavaScript.
+// Rebuild the model options: hiding optgroups is inconsistent in native Windows selects.
 const aiProvider = document.querySelector('[data-ai-provider]');
 const aiModel = document.querySelector('[data-ai-model]');
 if (aiProvider && aiModel) {
- const groups = Array.from(aiModel.querySelectorAll('optgroup'));
- const placeholder = aiModel.querySelector('option[value=""]');
+ const options = Array.from(aiModel.querySelectorAll('option[data-provider]')).map(option => ({
+  provider: option.dataset.provider, value: option.value, label: option.textContent
+ }));
+ const choices = {};
+ const selected = aiModel.selectedOptions[0];
+ if (selected?.dataset.provider) choices[selected.dataset.provider] = selected.value;
  const apply = () => {
   const provider = aiProvider.value;
-  for (const group of groups) {
-   const matches = group.dataset.provider === provider;
-   group.hidden = !matches;
-   group.disabled = !matches;
-   for (const option of group.querySelectorAll('option')) option.hidden = !matches;
+  const available = options.filter(option => option.provider === provider);
+  aiModel.replaceChildren();
+  for (const option of available) {
+   const element = document.createElement('option');
+   element.value = option.value;
+   element.textContent = option.label;
+   aiModel.appendChild(element);
   }
-  if (placeholder) placeholder.hidden = provider !== 'mock';
-  const selected = aiModel.selectedOptions[0];
-  // If the current choice belongs to another provider, fall back to the first valid one.
-  if (provider === 'mock') {
-   aiModel.value = '';
-  } else if (!selected || selected.dataset.provider !== provider) {
-   const first = aiModel.querySelector('option[data-provider="' + provider + '"]:not([disabled])');
-   aiModel.value = first ? first.value : '';
+  if (!available.length) {
+   const placeholder = document.createElement('option');
+   placeholder.value = '';
+   placeholder.textContent = provider === 'mock' ? 'Not applicable (development mock)' : 'Pull this provider’s catalogue below to select a model';
+   aiModel.appendChild(placeholder);
   }
+  aiModel.value = available.some(option => option.value === choices[provider]) ? choices[provider] : (available[0]?.value || '');
  };
+ aiModel.addEventListener('change', () => { choices[aiProvider.value] = aiModel.value; });
  aiProvider.addEventListener('change', apply);
  apply();
 }

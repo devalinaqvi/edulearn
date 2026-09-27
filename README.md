@@ -48,9 +48,9 @@ Password-reset flow uses Laravel's email broker. `.env.example` uses local log m
 
 ## AI configuration
 
-`AI_PROVIDER=mock` generates deterministic development output without contacting an AI service. The existing `openai` adapter uses server-side `OPENAI_API_KEY` and `OPENAI_MODEL`. Tests fake external HTTP. Source extraction currently supports lesson text and UTF-8 TXT/Markdown only; PDF downloads do not imply PDF extraction. Notes enforce ownership, quotas, source-version checks and queued access rechecks.
+Configure AI through **AI administration**. Pull OpenRouter free models, select one, enter the provider credential and save. Pulling the catalogue selects the corresponding provider in the form but does not change the saved configuration until you save. Credentials are encrypted with this installation's `APP_KEY`. `AI_PROVIDER=mock` produces explicitly labelled development output, not real AI.
 
-OpenRouter integration, model discovery, secure credential administration, instructor AI questions and approved spending controls are planned for milestone 6. They are not implemented. Never treat mock output as a working production integration or silently select a paid model.
+Saved database settings take precedence over environment defaults. For an installation without saved settings, OpenRouter uses `OPENROUTER_API_KEY` and `OPENROUTER_MODEL`; OpenAI uses `OPENAI_API_KEY` and `OPENAI_MODEL`. Keep credentials server-side. Notes need the queue worker above. Tests fake inference; a successful credential test is not an inference test. See [AI setup and troubleshooting](docs/ai-providers.md).
 
 ## Verification
 
@@ -88,9 +88,7 @@ The model field is a dropdown populated by pulling each provider's catalogue on 
 A withdrawn model is rejected on save rather than silently replaced, and a paid model is never
 reachable.
 
-**Zero data retention defaults to on, and no zero-price OpenRouter model currently offers a
-zero-retention endpoint**, so free models fail until an administrator deliberately turns that
-constraint off. See `docs/ai-providers.md` for the verified working configuration and for how
+**Zero data retention defaults to on.** Free-model availability under this restriction varies. The application never relaxes the saved privacy policy automatically. See `docs/ai-providers.md` for the verified working configuration and for how
 failures are classified in the admin activity log.
 
 ## Video lectures
@@ -98,3 +96,24 @@ failures are classified in the admin activity log.
 Course video lectures are uploaded, stored privately and streamed through authorized routes with HTTP Range support. **MP4 with H.264 video and AAC audio only**; the container is validated by parsing its box tree in PHP, so FFmpeg/ffprobe is not required and is not used. There is no transcoding, no automatic thumbnailing and no speech-to-text — posters and transcripts are uploaded by staff.
 
 The video size limit (`VIDEO_MAX_KILOBYTES`, default 500 MB) is **separate from and does not raise** the 10 MB study-material limit. PHP and web-server limits must be raised for this site only; see `docs/video-operations.md`, which also covers private delivery, the optional `X-Accel-Redirect` path, progress/completion rules and what is deliberately not implemented.
+
+## Moving to Windows or another device
+
+Git transfers code, not `.env`, database contents, private uploads or background workers. For an existing installation, transfer the database and `storage/app/private` securely, preserving its `APP_KEY`; do not generate a new key against a copied database. Alternatively, enter a new provider credential through AI administration if only that encrypted credential needs replacing. Use a separate key for a genuinely new installation.
+
+After configuring MySQL and installing Composer dependencies, run:
+
+```sh
+php artisan optimize:clear
+php artisan migrate --no-interaction
+php artisan queue:restart
+php artisan queue:work database --sleep=1 --tries=3 --timeout=45
+```
+
+Keep the last process running in its own terminal or a service. Run the scheduler separately. Do not reseed or use `migrate:fresh` on an existing database. Point Apache/Nginx at `public/`; continue using Valet at `https://lms.test` on this development machine, never `php artisan serve`.
+
+On Windows, check the PHP configuration actually loaded by Apache/FastCGI, not only the CLI's `php --ini`. Enable the required PHP extensions, configure a trusted CA bundle for cURL/OpenSSL when the Windows PHP distribution needs one, and restart both the web server and queue worker after configuration changes. Never disable TLS verification. Outbound HTTPS to `openrouter.ai` must be allowed.
+
+Video upload ceilings are server settings and do not travel with Git. Follow [video operations](docs/video-operations.md) to configure PHP and web-server limits. Staff upload forms display the PHP/application ceiling from the running web process. Existing recordings also require their private files to be copied; database records alone cannot play a video.
+
+Frontend upload and model-selector regression tests need no npm installation: `node --test tests/upload-ui.test.cjs`.

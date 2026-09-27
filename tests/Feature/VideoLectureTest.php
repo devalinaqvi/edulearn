@@ -411,4 +411,34 @@ class VideoLectureTest extends TestCase
         $this->actingAs($this->teacher)->postJson(route('lectures.progress', $lecture), ['position_seconds' => 5])->assertForbidden();
         $this->assertDatabaseCount('video_lecture_progress', 0);
     }
+
+    public function test_php_upload_failure_returns_actionable_json_without_creating_a_lecture(): void
+    {
+        $file = new UploadedFile(__FILE__, 'lecture.mp4', 'video/mp4', UPLOAD_ERR_INI_SIZE, true);
+        $this->actingAs($this->teacher)->postJson(route('lectures.store', $this->course), [
+            'title' => 'Failed upload', 'file' => $file,
+        ])->assertUnprocessable()->assertJsonValidationErrors('file')
+            ->assertJsonPath('errors.file.0', 'PHP could not accept this video. Check upload_max_filesize, post_max_size, temporary upload storage and disk space on this server.');
+        $this->assertDatabaseCount('video_lectures', 0);
+        $this->assertSame([], Storage::disk('local')->allFiles());
+    }
+
+    public function test_ajax_poster_upload_returns_the_redirect_expected_by_the_browser(): void
+    {
+        $lecture = $this->publishedLecture();
+        $image = UploadedFile::fake()->createWithContent('poster.png', base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII='));
+        $this->actingAs($this->teacher)->postJson(route('lectures.poster', $lecture), ['poster' => $image])
+            ->assertOk()->assertJsonPath('redirect', route('lectures.show', $lecture));
+        Storage::disk('local')->assertExists($lecture->fresh()->poster_path);
+        $this->actingAs($this->learner)->get(route('lectures.poster.show', $lecture))->assertOk();
+    }
+
+    public function test_staff_sees_upload_ceiling_on_create_and_replace_forms(): void
+    {
+        $this->actingAs($this->teacher)->get(route('lectures.index', $this->course))
+            ->assertOk()->assertSee('data-max-upload-bytes', false)->assertSee('upload_max_filesize');
+        $lecture = $this->publishedLecture();
+        $this->actingAs($this->teacher)->get(route('lectures.show', $lecture))
+            ->assertOk()->assertSee('data-max-upload-bytes', false)->assertSee('upload_max_filesize');
+    }
 }

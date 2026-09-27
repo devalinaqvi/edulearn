@@ -60,7 +60,7 @@ class NotesProvider
      * never stored or logged; only these fixed strings, which describe configuration state.
      */
     private const REASONS = [
-        'data_policy' => 'No provider endpoint met the required zero-data-retention policy. No zero-price OpenRouter model currently offers one; review that setting in AI administration.',
+        'data_policy' => 'No provider endpoint met the required zero-data-retention policy. Review the provider’s current availability and the saved privacy setting in AI administration.',
         'model_unavailable' => 'The selected model is no longer available at zero price.',
         'rate_limited' => 'The model was rate-limited upstream, which is usually temporary and specific to that model. Retry, or select a different free model.',
         'auth_failed' => 'The stored credential was rejected by the provider.',
@@ -92,7 +92,7 @@ class NotesProvider
                     ['role' => 'user', 'content' => json_encode(['source_text' => $text], JSON_THROW_ON_ERROR)],
                 ],
             ]);
-            $reason = $this->classify($response, (bool) $configuration->require_zero_retention);
+            $reason = $this->classify($response);
             if ($reason !== null) {
                 throw new \RuntimeException;
             }
@@ -114,7 +114,7 @@ class NotesProvider
      * Map a provider response to one of the fixed reasons, or null when it succeeded.
      * Only the provider's own error code and a small set of known markers are inspected.
      */
-    private function classify(Response $response, bool $zeroRetentionRequired): ?string
+    private function classify(Response $response): ?string
     {
         if ($response->successful()) {
             return null;
@@ -124,11 +124,6 @@ class NotesProvider
             return 'auth_failed';
         }
         if (stripos($message, 'data policy') !== false || stripos($message, 'zero data retention') !== false) {
-            return 'data_policy';
-        }
-        // OpenRouter reports an unroutable zero-retention request as a bare 429 with a generic
-        // message, so while that constraint is on, policy is far likelier than genuine quota.
-        if ($zeroRetentionRequired) {
             return 'data_policy';
         }
         if ($response->status() === 429) {
