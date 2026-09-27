@@ -63,3 +63,51 @@ around that.
 - A copied database requires its original `APP_KEY` to decrypt stored credentials. If the key is unavailable, AI administration allows a replacement credential and displays a recovery notice; it does not silently erase the persisted ciphertext on a read.
 - Notes that stay pending require `php artisan queue:work database --sleep=1 --tries=3 --timeout=45`. Restart long-running workers after deploying changes.
 - Credentials belong in the password field, never in chat, URLs, Git or screenshots. Revoke any exposed credential.
+
+First-time OpenAI configuration: select OpenAI, disable AI, save the credential with no model, pull the model catalogue, then select a model and enable AI with paid-use approval. A disabled configuration does not require a model or an available catalogue. Administrators can always disable AI during a provider outage.
+
+## Windows certificate configuration
+
+Command Prompt `curl` and PHP can use different certificate stores. For this app set `AI_CA_BUNDLE="C:/cacert.pem"` in `.env`, pointing to a current trusted PEM CA bundle readable by the web-server and worker accounts. `CURL_CAINFO` and `OPENSSL_CAFILE` are accepted as fallback environment names if `AI_CA_BUNDLE` is blank or absent. Laravel passes this path explicitly to all AI HTTPS requests; certificate verification stays enabled.
+
+Run `php artisan optimize:clear`, restart Apache/PHP, and restart the queue worker. Alternatively configure `curl.cainfo="C:/cacert.pem"` and `openssl.cafile="C:/cacert.pem"` in the actual web-server/worker `php.ini` files. Setting those environment names alone on older code does not configure PHP ini. `php --ini` identifies the CLI configuration; Apache/FastCGI can load a different one. If the problem persists, verify DNS/proxy/firewall access from PHP itself rather than CMD curl. Do not share API keys or disable TLS verification.
+
+
+## TLS and CA certificates (cross-device setup)
+
+Every AI HTTPS call — catalogue pulls, the credential test and generation itself — goes through
+`AiSettings::http()`. Nothing uses the `Http` facade directly, so there is one place where TLS
+policy is decided and **verification is never disabled**.
+
+On hosts without a CA trust store (Windows, and minimal containers) cURL cannot verify any
+certificate, so *every* call fails before a credential is ever checked. Point `AI_CA_BUNDLE` at a
+readable `cacert.pem`:
+
+```dotenv
+AI_CA_BUNDLE="C:/cacert.pem"
+```
+
+`CURL_CAINFO` and `OPENSSL_CAFILE` are read as fallbacks, so an existing setup keeps working.
+Note these are **`.env` values read by `config/study.php`, not PHP ini directives** — setting them
+in `.env` does not configure PHP itself.
+
+The file must exist and be readable by **both** the web server and the queue worker; they often run
+as different accounts. If it is missing or unreadable the request fails immediately, before any
+network call, with a message naming the setting. Leave the value empty to use the system trust
+store.
+
+### Failures are attributed correctly
+
+A host that cannot be reached is never reported as a bad credential:
+
+| Situation | Reported as |
+| --- | --- |
+| DNS, network or TLS failure | "Cannot reach …" plus what to check, including `AI_CA_BUNDLE` |
+| `AI_CA_BUNDLE` unreadable | Names the setting; no request is sent |
+| HTTP 401/403 | The provider rejected the stored credential |
+| Other HTTP error | The provider refused the request, with the status |
+
+This distinction matters because the symptom is identical from the outside: "Test saved
+credentials" fails. Blaming the key sends an administrator to rotate a credential that was never
+the problem. The reason is also written to `ai_usage_events.detail` and shown in Recent AI
+activity.

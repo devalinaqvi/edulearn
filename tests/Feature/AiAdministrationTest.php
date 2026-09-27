@@ -4,8 +4,10 @@ namespace Tests\Feature;
 
 use App\Models\AiConfiguration;
 use App\Models\User;
+use App\Services\AiSettings;
 use App\Services\NotesProvider;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Env;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -206,7 +208,13 @@ class AiAdministrationTest extends TestCase
         Cache::put('ai.models.openrouter', ['existing:free' => 'Existing model'], 60);
         $this->actingAs(User::factory()->create(['role' => 'admin']))
             ->post(route('admin.ai.models'), ['provider' => 'openrouter'])
-            ->assertSessionHasErrors(['provider' => 'Cannot reach the OpenRouter catalog. Check this server’s internet connection, DNS, and PHP cURL/OpenSSL CA certificates. Keep TLS verification enabled.']);
+            ->assertSessionHasErrors('provider');
+        // The guidance must name what to check, including the CA bundle, which is the usual
+        // cause on hosts without a trust store.
+        $message = session('errors')->first('provider');
+        foreach (['Cannot reach the OpenRouter catalogue', 'DNS', 'CA certificates', 'AI_CA_BUNDLE', 'TLS verification enabled'] as $expected) {
+            $this->assertStringContainsString($expected, $message);
+        }
         $this->assertSame(['existing:free' => 'Existing model'], Cache::get('ai.models.openrouter'));
         Http::assertSentCount(1);
     }
@@ -250,5 +258,141 @@ class AiAdministrationTest extends TestCase
                 $value === null ? $environment->clear($name) : $environment->set($name, $value);
             }
         }
+    }
+
+    public function test_first_time_openai_setup_can_save_disabled_credentials_before_selecting_a_model(): void
+    {
+        Http::preventStrayRequests();
+        Http::fake(['api.openai.com/v1/models' => Http::response(['data' => [['id' => 'gpt-4.1-mini']]])]);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $payload = array_replace($this->payload(), ['enabled' => 0, 'provider' => 'openai', 'model' => null, 'api_key' => 'openai-test-key']);
+        $this->actingAs($admin)->put(route('admin.ai.update'), $payload)->assertRedirect()->assertSessionHasNoErrors();
+        Http::assertNothingSent();
+        $this->assertFalse(AiConfiguration::findOrFail(1)->enabled);
+        $this->post(route('admin.ai.models'), ['provider' => 'openai'])->assertRedirect()->assertSessionHasNoErrors();
+        $this->get(route('admin.ai'))->assertSee('gpt-4.1-mini');
+        $this->put(route('admin.ai.update'), array_replace($payload, ['enabled' => 1, 'version' => 1, 'allow_paid' => 1]))->assertSessionHasErrors('model');
+        $this->put(route('admin.ai.update'), array_replace($payload, ['enabled' => 1, 'model' => 'gpt-4.1-mini', 'version' => 1, 'allow_paid' => 1]))
+            ->assertRedirect()->assertSessionHasNoErrors();
+        $this->assertTrue(AiConfiguration::findOrFail(1)->enabled);
+    }
+
+    public function test_administrator_can_disable_ai_even_when_the_provider_is_unreachable(): void
+    {
+        $this->catalog();
+        $this->actingAs(User::factory()->create(['role' => 'admin']))
+            ->put(route('admin.ai.update'), $this->payload())->assertRedirect()->assertSessionHasNoErrors();
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        $this->put(route('admin.ai.update'), array_replace($this->payload(), ['enabled' => 0, 'version' => 1, 'model' => 'withdrawn:free']))
+            ->assertRedirect()->assertSessionHasNoErrors();
+        $this->assertFalse(AiConfiguration::findOrFail(1)->enabled);
+        Http::assertNothingSent();
+    }
+
+    public function test_catalog_uses_the_configured_ca_bundle_and_never_disables_tls(): void
+    {
+        Http::preventStrayRequests();
+        $bundle = tempnam(sys_get_temp_dir(), 'edulearn-ca-');
+        try {
+            config(['study.ca_bundle' => $bundle]);
+            Http::fake(['openrouter.ai/api/v1/models' => function ($request, $options) use ($bundle) {
+                $this->assertSame($bundle, $options['verify']);
+
+                return Http::response(['data' => []]);
+            }]);
+            $this->assertSame([], app(AiSettings::class)->freeModels(true));
+            Http::assertSentCount(1);
+            config(['study.ca_bundle' => '']);
+            $this->assertTrue(app(AiSettings::class)->http()->getOptions()['verify']);
+        } finally {
+            unlink($bundle);
+        }
+    }
+
+    public function test_unreadable_ca_bundle_fails_before_sending_any_request(): void
+    {
+        Http::preventStrayRequests();
+        config(['study.ca_bundle' => storage_path('missing-ai-ca.pem')]);
+        try {
+            app(AiSettings::class)->http();
+            $this->fail('An unreadable CA bundle must be rejected.');
+        } catch (\RuntimeException $exception) {
+            $this->assertStringContainsString('not a readable file', $exception->getMessage());
+        }
+        Http::assertNothingSent();
+    }
+
+    public function test_credential_test_reports_a_transport_failure_as_setup_not_a_bad_credential(): void
+    {
+        Http::preventStrayRequests();
+        $this->catalog();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin)->put(route('admin.ai.update'), $this->payload())->assertRedirect();
+        $this->flushSession();
+
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        Http::fake(['openrouter.ai/api/v1/key' => Http::failedConnection()]);
+        $this->post(route('admin.ai.test'))->assertRedirect()->assertSessionHasErrors('provider');
+
+        $message = session('errors')->first('provider');
+        foreach (['Cannot reach OpenRouter', 'CA certificates', 'AI_CA_BUNDLE'] as $expected) {
+            $this->assertStringContainsString($expected, $message);
+        }
+        $this->assertStringNotContainsString('Check credentials', $message);
+
+        $event = DB::table('ai_usage_events')->orderByDesc('id')->first();
+        $this->assertSame('connection_failed', $event->status);
+        $this->assertStringContainsString('AI_CA_BUNDLE', $event->detail);
+    }
+
+    public function test_credential_test_still_blames_the_credential_on_a_rejected_key(): void
+    {
+        Http::preventStrayRequests();
+        $this->catalog();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin)->put(route('admin.ai.update'), $this->payload())->assertRedirect();
+        $this->flushSession();
+
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        Http::fake(['openrouter.ai/api/v1/key' => Http::response(['error' => 'no'], 401)]);
+        $this->post(route('admin.ai.test'))->assertRedirect()->assertSessionHasErrors('provider');
+        $this->assertStringContainsString('rejected the stored credential', session('errors')->first('provider'));
+    }
+
+    public function test_an_unreadable_ca_bundle_is_reported_by_the_credential_test_too(): void
+    {
+        Http::preventStrayRequests();
+        $this->catalog();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin)->put(route('admin.ai.update'), $this->payload())->assertRedirect();
+        $this->flushSession();
+
+        // Reset the recorder so the assertion below covers only the credential test.
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        config(['study.ca_bundle' => storage_path('missing-ai-ca.pem')]);
+        $this->post(route('admin.ai.test'))->assertRedirect()->assertSessionHasErrors('provider');
+        $this->assertStringContainsString('AI CA bundle is not a readable file', session('errors')->first('provider'));
+        Http::assertNothingSent();
+    }
+
+    public function test_openai_catalogue_separates_a_transport_failure_from_a_credential_problem(): void
+    {
+        Http::preventStrayRequests();
+        Http::fake(['api.openai.com/v1/models' => Http::failedConnection()]);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin)->put(route('admin.ai.update'), array_replace($this->payload(), [
+            'enabled' => 0, 'provider' => 'openai', 'model' => null, 'api_key' => 'openai-test-key',
+        ]))->assertRedirect();
+        $this->flushSession();
+
+        $this->post(route('admin.ai.models'), ['provider' => 'openai'])->assertRedirect()->assertSessionHasErrors('provider');
+        $message = session('errors')->first('provider');
+        $this->assertStringContainsString('Cannot reach the OpenAI catalogue', $message);
+        $this->assertStringContainsString('AI_CA_BUNDLE', $message);
+        $this->assertStringNotContainsString('Check the stored credential', $message);
     }
 }

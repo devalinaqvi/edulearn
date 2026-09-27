@@ -1,19 +1,26 @@
 # EduLearn
 
+![EduLearn — an online learning management system built with Laravel, MySQL and Blade](docs/images/edulearn.png)
+
 A fully online LMS under active implementation with Laravel 13.31, PHP 8.3, MySQL, Blade and private file storage. The source contains course learning, assignments, timed multiple-choice quizzes and private study notes, with administrator-managed accounts and learner self-enrollment. No active university ERP workflow is part of the product.
 
 See the [requirements checklist and milestone plan](docs/requirements-status.md), [scope conversion audit](docs/online-lms-audit.md), and [validation record](docs/validation.md). These distinguish implemented behavior from incomplete SRS requirements. This is not a production-readiness claim.
 
 ## Local setup
 
+Use PHP 8.3+ with the extensions required by Composer, plus `pdo_mysql` for MySQL and `zip`/`dom` for office-document extraction. Verify the web-server PHP configuration as well as the CLI configuration. The web process needs write access to `storage/` and `bootstrap/cache/`; keep private uploads outside the public web root.
+
 Use the existing Valet site at **https://lms.test**. Do not run `php artisan serve`. For a new installation, copy `.env.example` to `.env`, configure MySQL and run:
 
 ```sh
 composer install
-php artisan key:generate --no-interaction
+php artisan config:clear
+php artisan lms:prepare
 php artisan migrate --no-interaction
 php artisan db:seed --no-interaction
 ```
+
+`composer setup` runs the same preparation and migration steps without demo seeding. `lms:prepare` enforces MySQL, preserves an existing application key, and refuses to generate a new key for a database containing users. Seed only a fresh local/test installation.
 
 Preserve an existing `.env`, application key, database and private storage. The previous scope-conversion migration removes obsolete tables and is forward-only: back up the database and matching source first and follow the retention plan in the audit. Do not use `migrate:fresh` against the application database.
 
@@ -53,6 +60,8 @@ Configure AI through **AI administration**. Pull OpenRouter free models, select 
 Saved database settings take precedence over environment defaults. For an installation without saved settings, OpenRouter uses `OPENROUTER_API_KEY` and `OPENROUTER_MODEL`; OpenAI uses `OPENAI_API_KEY` and `OPENAI_MODEL`. Keep credentials server-side. Notes need the queue worker above. Tests fake inference; a successful credential test is not an inference test. See [AI setup and troubleshooting](docs/ai-providers.md).
 
 ## Verification
+
+Create a dedicated MySQL test database (default `acumen_university_test`) and grant the configured test user access to it. The test harness requires MySQL and a database name ending in `_test`, and checks this before `RefreshDatabase` can reset any tables. Never use application data for tests.
 
 ```sh
 # MySQL run. Clear the config cache FIRST: a cached config ignores DB_DATABASE and the

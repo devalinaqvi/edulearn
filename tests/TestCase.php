@@ -2,6 +2,7 @@
 
 namespace Tests;
 
+use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -19,17 +20,19 @@ abstract class TestCase extends BaseTestCase
      */
     private const PROTECTED_DATABASES = ['acumen_lms'];
 
-    protected function setUp(): void
+    public function createApplication(): Application
     {
-        parent::setUp();
+        $app = parent::createApplication();
 
         $database = DB::connection()->getDatabaseName();
-        if (in_array($database, self::PROTECTED_DATABASES, true)) {
+        if (in_array($database, self::PROTECTED_DATABASES, true) || DB::connection()->getDriverName() !== 'mysql' || ! str_ends_with($database, '_test')) {
             throw new RuntimeException(
-                "Refusing to run tests against the application database [{$database}].\n".
+                "Refusing to run tests against an unsafe database [{$database}].\n".
                 "Run `php artisan config:clear` first: a cached config ignores DB_DATABASE.\n".
-                'Then run: DB_CONNECTION=mysql DB_DATABASE=acumen_university_test vendor/bin/phpunit'
+                'Use an isolated MySQL database whose name ends in _test. Then run: DB_CONNECTION=mysql DB_DATABASE=acumen_university_test vendor/bin/phpunit'
             );
         }
+
+        return $app;
     }
 }

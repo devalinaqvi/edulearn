@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\AiConfiguration;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
@@ -12,11 +13,32 @@ class AiSettings
 {
     private const CACHE_MINUTES = 15;
 
+    /**
+     * Shown whenever an AI host cannot be reached. Names AI_CA_BUNDLE because a missing CA
+     * bundle is the usual cause on Windows and in minimal containers, where cURL ships without
+     * a trust store and every HTTPS call fails before any credential is ever checked.
+     */
+    public static function connectionHelp(string $target): string
+    {
+        return 'Cannot reach '.$target.'. Check this server\'s internet connection, DNS, and PHP cURL/OpenSSL CA certificates. '
+            .'If this host has no CA trust store, point AI_CA_BUNDLE at a readable cacert.pem. Keep TLS verification enabled.';
+    }
+
     /** OpenAI model families usable for text generation through the Responses API. */
     private const OPENAI_ALLOWED = '/^(gpt-[0-9]|gpt-4|gpt-5|o1|o3|o4|chatgpt-)/i';
 
     /** Endpoint-specific models that cannot produce study notes. */
     private const OPENAI_EXCLUDED = '/(embedding|moderation|tts|whisper|audio|realtime|image|dall-e|transcribe|search|codex)/i';
+
+    public function http(): PendingRequest
+    {
+        $bundle = trim((string) config('study.ca_bundle'));
+        if ($bundle !== '' && (! is_file($bundle) || ! is_readable($bundle))) {
+            throw new \RuntimeException('The configured AI CA bundle is not a readable file. Check AI_CA_BUNDLE and the web-server account permissions.');
+        }
+
+        return Http::withOptions(['verify' => $bundle !== '' ? $bundle : true]);
+    }
 
     public function current(): AiConfiguration
     {
@@ -77,8 +99,9 @@ class AiSettings
     /** @return array<string, string> */
     private function openRouterModels(): array
     {
+        $http = $this->http();
         try {
-            $response = Http::acceptJson()->connectTimeout(5)->timeout(10)->get('https://openrouter.ai/api/v1/models');
+            $response = $http->acceptJson()->connectTimeout(5)->timeout(10)->get('https://openrouter.ai/api/v1/models');
             if (! $response->successful() || ! is_array($response->json('data'))) {
                 throw new \RuntimeException;
             }
@@ -103,7 +126,7 @@ class AiSettings
 
             return $models;
         } catch (ConnectionException) {
-            throw new \RuntimeException('Cannot reach the OpenRouter catalog. Check this server’s internet connection, DNS, and PHP cURL/OpenSSL CA certificates. Keep TLS verification enabled.');
+            throw new \RuntimeException(self::connectionHelp('the OpenRouter catalogue'));
         } catch (\Throwable) {
             throw new \RuntimeException('The OpenRouter model catalog is unavailable or returned an invalid response. Try pulling it again.');
         }
@@ -116,8 +139,9 @@ class AiSettings
         if ($configuration->provider !== 'openai' || ! $configuration->api_key) {
             throw new \RuntimeException('Save an OpenAI credential before pulling its model catalogue.');
         }
+        $http = $this->http();
         try {
-            $response = Http::withToken($configuration->api_key)->acceptJson()->connectTimeout(5)->timeout(15)
+            $response = $http->withToken($configuration->api_key)->acceptJson()->connectTimeout(5)->timeout(15)
                 ->get('https://api.openai.com/v1/models');
             if (! $response->successful() || ! is_array($response->json('data'))) {
                 throw new \RuntimeException;
@@ -133,6 +157,8 @@ class AiSettings
             ksort($models);
 
             return $models;
+        } catch (ConnectionException) {
+            throw new \RuntimeException(self::connectionHelp('the OpenAI catalogue'));
         } catch (\Throwable) {
             throw new \RuntimeException('The OpenAI model catalogue is unavailable. Check the stored credential and try again.');
         }

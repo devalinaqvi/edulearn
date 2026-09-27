@@ -6,11 +6,11 @@ use App\Http\Requests\UpdateAiConfigurationRequest;
 use App\Models\AiConfiguration;
 use App\Services\AiSettings;
 use Illuminate\Contracts\View\View;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\ValidationException;
 
 class AiAdminController extends Controller
@@ -38,7 +38,7 @@ class AiAdminController extends Controller
     public function update(UpdateAiConfigurationRequest $request, AiSettings $settings): RedirectResponse
     {
         $data = $request->validated();
-        if ($data['provider'] === 'openrouter') {
+        if ($request->boolean('enabled') && $data['provider'] === 'openrouter' && filled($data['model'] ?? null)) {
             try {
                 $models = $settings->models('openrouter');
             } catch (\RuntimeException $exception) {
@@ -48,11 +48,11 @@ class AiAdminController extends Controller
                 throw ValidationException::withMessages(['model' => 'Select a currently available zero-price OpenRouter model. Pull the catalogue to see today\'s list; models are withdrawn regularly.']);
             }
         }
-        if ($data['provider'] === 'openai') {
+        if ($request->boolean('enabled') && $data['provider'] === 'openai') {
             // Only constrain the choice when a catalogue could actually be pulled, so the very
             // first save (which is what stores the credential) is not a deadlock.
             $known = Cache::get('ai.models.openai', []);
-            if ($known && ! isset($known[$data['model']])) {
+            if (filled($data['model'] ?? null) && $known && ! isset($known[$data['model']])) {
                 throw ValidationException::withMessages(['model' => 'Select a model from the pulled OpenAI catalogue, or pull it again.']);
             }
         }
@@ -100,14 +100,28 @@ class AiAdminController extends Controller
         if ($configuration->provider === 'mock') {
             return back()->with('status', 'Development mock selected. No external connection was tested.');
         }
+        $success = false;
+        // A host that cannot be reached must not be reported as a bad credential: on Windows and
+        // in minimal containers a missing CA trust store fails every call before authentication.
+        $failure = 'Connection failed. Check credentials and provider availability.';
         try {
-            $response = Http::withToken($configuration->api_key ?? '')->acceptJson()->connectTimeout(5)->timeout(15)->get($configuration->provider === 'openrouter' ? 'https://openrouter.ai/api/v1/key' : 'https://api.openai.com/v1/models');
+            $response = $settings->http()->withToken($configuration->api_key ?? '')->acceptJson()->connectTimeout(5)->timeout(15)->get($configuration->provider === 'openrouter' ? 'https://openrouter.ai/api/v1/key' : 'https://api.openai.com/v1/models');
             $success = $response->successful();
+            if (! $success) {
+                $failure = in_array($response->status(), [401, 403], true)
+                    ? 'The provider rejected the stored credential. Replace it and test again.'
+                    : 'The provider refused the request (HTTP '.$response->status().'). Check provider availability and try again.';
+            }
+        } catch (ConnectionException) {
+            $failure = AiSettings::connectionHelp($configuration->provider === 'openrouter' ? 'OpenRouter' : 'OpenAI');
+        } catch (\RuntimeException $exception) {
+            // Raised by AiSettings::http() when AI_CA_BUNDLE points at an unreadable file.
+            $failure = $exception->getMessage();
         } catch (\Throwable) {
-            $success = false;
+            $failure = 'Connection failed for an unexpected reason. Check the server log.';
         }
-        DB::table('ai_usage_events')->insert(['provider' => $configuration->provider, 'model' => $configuration->model, 'status' => $success ? 'connection_ok' : 'connection_failed', 'input_chars' => 0, 'created_at' => now()]);
+        DB::table('ai_usage_events')->insert(['provider' => $configuration->provider, 'model' => $configuration->model, 'status' => $success ? 'connection_ok' : 'connection_failed', 'detail' => $success ? null : mb_substr($failure, 0, 200), 'input_chars' => 0, 'created_at' => now()]);
 
-        return $success ? back()->with('status', 'Credentials authenticated. No course content was sent and no inference was requested.') : back()->withErrors(['provider' => 'Connection failed. Check credentials and provider availability.']);
+        return $success ? back()->with('status', 'Credentials authenticated. No course content was sent and no inference was requested.') : back()->withErrors(['provider' => $failure]);
     }
 }

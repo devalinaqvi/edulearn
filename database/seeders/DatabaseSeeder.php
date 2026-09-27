@@ -51,10 +51,10 @@ class DatabaseSeeder extends Seeder
                 }
             }
             Assignment::firstOrCreate(['course_id' => $course->id, 'title' => 'Apply what you have learned'], ['instructions' => 'Choose one concept from this course. Explain it in your own words and give a practical example in 150–300 words.', 'due_at' => now()->addDays(7)->setTime(23, 59), 'max_marks' => 100]);
-            Announcement::firstOrCreate(['course_id' => $course->id, 'title' => 'Welcome to the course'], ['body' => 'Start with the first lesson and work at your own pace. Mark each lesson complete when you feel ready, then put your understanding into practice with the assignment.']);
+            Announcement::firstOrCreate(['course_id' => $course->id, 'title' => 'Welcome to the course'], ['author_id' => $instructor->id, 'body' => 'Start with the first lesson and work at your own pace. Mark each lesson complete when you feel ready, then put your understanding into practice with the assignment.']);
             $path = 'materials/demo-'.$course->id.'.txt';
             Storage::disk('local')->put($path, implode("\n\n", array_column($lessons, 1)));
-            Material::firstOrCreate(['course_id' => $course->id, 'path' => $path], ['title' => 'Course revision reader', 'original_name' => 'revision-reader.txt', 'format' => 'txt']);
+            Material::firstOrCreate(['course_id' => $course->id, 'path' => $path], ['uploader_id' => $instructor->id, 'size_bytes' => Storage::disk('local')->size($path), 'uploaded_at' => now(), 'title' => 'Course revision reader', 'original_name' => 'revision-reader.txt', 'format' => 'txt']);
         }
         $this->call(AssessmentDemoSeeder::class);
     }

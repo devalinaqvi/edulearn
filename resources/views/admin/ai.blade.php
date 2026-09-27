@@ -45,7 +45,7 @@ Pull a catalogue before selecting a model — providers withdraw models regularl
 
 <div class="two-col">
 <form class="panel" method="post" action="{{ route('admin.ai.models') }}">@csrf<input type="hidden" name="provider" value="openrouter"><button class="button secondary">Pull OpenRouter free models</button><p class="muted">Public catalogue; no credential needed.</p></form>
-<form class="panel" method="post" action="{{ route('admin.ai.models') }}">@csrf<input type="hidden" name="provider" value="openai"><button class="button secondary">Pull OpenAI models</button><p class="muted">Requires a saved OpenAI credential. Save the key first, then pull.</p></form>
+<form class="panel" method="post" action="{{ route('admin.ai.models') }}">@csrf<input type="hidden" name="provider" value="openai"><button class="button secondary">Pull OpenAI models</button><p class="muted">First-time setup: choose OpenAI, set AI features to Disabled, enter the key and save without a model. Pull the catalogue, select a model, then enable AI and approve paid use.</p></form>
 </div>
 <form class="panel" method="post" action="{{ route('admin.ai.test') }}">@csrf<button class="button secondary">Test saved credentials</button><p class="muted">Checks authentication without sending course content or requesting inference.</p></form>
 

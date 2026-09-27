@@ -1,6 +1,7 @@
 <?php
 
 return [
+    'ca_bundle' => env('AI_CA_BUNDLE') ?: (env('CURL_CAINFO') ?: env('OPENSSL_CAFILE')),
     'provider' => env('AI_PROVIDER', 'mock'),
     'api_key' => env('AI_PROVIDER', 'mock') === 'openrouter' ? env('OPENROUTER_API_KEY') : env('OPENAI_API_KEY'),
     'model' => env('AI_PROVIDER', 'mock') === 'openrouter' ? env('OPENROUTER_MODEL') : env('OPENAI_MODEL', 'gpt-4.1-mini'),

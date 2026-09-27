@@ -24,3 +24,33 @@ Not yet measured: representative 100/200-user load, p95 latency, 500 ms query ta
 `database/migrations/2026_09_12_131559_add_account_controls_to_users.php` adds active-account state, session/account versions, last-login timestamps, and safe account activity records. It removes the old public-registration setting.
 
 Before the refactor, protected backups were created at `/tmp/lms-before-online-refactor-20260912.tar.gz` and `/tmp/lms-before-online-refactor-20260912.sql`. The SQL dump completed with 194,128 bytes. These local backup paths are evidence for this run, not portable installation requirements. They have not undergone a restore drill.
+
+
+## Role and fresh-install regression audit — 28 September 2026
+
+Executed on Linux with PHP 8.3.31 and the isolated MySQL database `acumen_university_test`. No application database migrations or seed operations were run during this audit.
+
+- Full PHPUnit suite: **110 tests, 1,204 assertions, all passed** (80.964 seconds).
+- Frontend regression suite: **4 tests passed** with `node --test --test-reporter=spec tests/upload-ui.test.cjs`.
+- `composer validate --no-check-publish`, `composer check-platform-reqs`, Pint, `git diff --check`, and `php artisan view:cache` passed. Application-specific `pdo_mysql`, `zip`, `dom`, `fileinfo`, and `openssl` extensions are available on the tested CLI runtime.
+
+| Area | Automated coverage |
+| --- | --- |
+| Accounts and roles | Login/logout, lockout, password reset broker, deactivation, profile restrictions, role dashboards, admin account controls |
+| Fresh seed data | Admin, instructor and learner logins; authorized dashboard, profile, course, material, assignment, quiz, lecture-list and notes screens; restricted administration pages |
+| Courses and materials | Enrollment, instructor isolation, archival, unique codes, private uploads/downloads, document validation/extraction, retained revisions |
+| Assignments and results | Deadlines, replacements, extensions, grading, confirmation/publication, unpublished and cross-learner privacy; seeded learner-to-instructor-to-learner workflow |
+| Quizzes | Windows, timer enforcement, answer persistence, finalization, objective scores, short-answer review and publication |
+| Communication and notes | Audience filtering, read state, ownership, quotas, queue processing, failed generation and authorization rechecks |
+| AI administration | Provider catalogues, secret protection, migrated credential recovery, first-time disabled credential provisioning, enablement validation and outage-safe disablement; external inference mocked |
+| Video lectures | MP4 metadata validation, upload errors, scoped access, Range/HEAD/416 delivery, captions, poster uploads, retained recordings, transcript notes and bounded progress |
+| Installation safety | MySQL defaults, key generation for an empty installation, key preservation on repeat setup, refusal to replace a populated installation's missing key, rejection of unsafe test databases before any connection/schema reset |
+
+Fixes introduced by this audit:
+
+1. `composer setup` and create-project hooks now use `lms:prepare`, preserving existing keys and removing SQLite scaffolding.
+2. Test database protection now runs from `createApplication`, before `RefreshDatabase`; it requires an isolated MySQL database ending in `_test`.
+3. Disabled AI configurations can save a credential before a model is available; administrators can disable AI without a working provider catalogue.
+4. Development materials now include uploader/size/upload-time metadata and announcements identify their author.
+
+Limits: the fresh-install tests exercise new migrations, seed data and setup commands; they are not a clean Windows OS installation. No browser executable is available in this environment, so no new visual, keyboard, native video-decoding or browser accessibility acceptance test was completed. Video fixtures validate the server workflow, not real decoder compatibility. Live AI inference, real SMTP delivery, load targets and availability were not verified. Existing missing SRS modules remain recorded in `docs/requirements-status.md`; passing tests do not mean those modules have been implemented.
