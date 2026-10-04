@@ -19,7 +19,7 @@ class ReplaceMaterialRequest extends FormRequest
         return [
             'title' => 'required|string|max:160',
             'version' => 'required|integer|min:0',
-            'reason' => 'required|string|max:1000',
+            'reason' => 'nullable|string|max:1000',
             'file' => ['bail', 'required', 'file', 'max:10240', new StudyMaterialFile],
         ];
     }

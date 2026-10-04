@@ -18,8 +18,12 @@ use Illuminate\Validation\ValidationException;
 /**
  * Authoring, replacement, publication and progress rules for course video lectures.
  *
- * All mutations acquire lms_write_locks row 1 first, matching the ordering documented in
+ * Authoring mutations acquire the shared write lock first, matching the ordering documented in
  * .ai/rules/app.md for assessment, enrollment and permission mutations.
+ *
+ * `recordProgress` is the deliberate exception: it is called every fifteen seconds by every
+ * watching learner, and only ever touches that learner's own progress row, so it takes a row
+ * lock on that record instead of serializing the whole installation behind one lock.
  */
 class VideoLectureWorkflow
 {
@@ -59,7 +63,7 @@ class VideoLectureWorkflow
 
         try {
             return DB::transaction(function () use ($actor, $course, $data, $file, $media) {
-                $this->lock();
+                WriteLock::acquire();
                 Gate::forUser($actor->fresh())->authorize('manage', $course->fresh());
 
                 return VideoLecture::create([
@@ -97,14 +101,14 @@ class VideoLectureWorkflow
     {
         $data = Validator::make($input, [
             'version' => 'required|integer|min:0',
-            'reason' => 'required|string|max:1000',
+            'reason' => 'nullable|string|max:1000',
         ])->validate();
 
         $media = $this->storeMedia($file);
 
         try {
             DB::transaction(function () use ($actor, $lecture, $data, $file, $media) {
-                $this->lock();
+                WriteLock::acquire();
                 $current = VideoLecture::whereKey($lecture->id)->lockForUpdate()->firstOrFail();
                 Gate::forUser($actor->fresh())->authorize('manage', $current->course);
                 abort_if((int) $data['version'] !== $current->version, 409, 'This lecture changed. Reload before replacing its media.');
@@ -121,7 +125,7 @@ class VideoLectureWorkflow
                     'uploaded_at' => $current->uploaded_at,
                     'replaced_by' => $actor->id,
                     'replaced_at' => now(),
-                    'reason' => $data['reason'],
+                    'reason' => blank($data['reason'] ?? null) ? null : $data['reason'],
                 ]);
 
                 $current->update([
@@ -160,7 +164,7 @@ class VideoLectureWorkflow
         ])->validate();
 
         DB::transaction(function () use ($actor, $lecture, $data) {
-            $this->lock();
+            WriteLock::acquire();
             $current = VideoLecture::whereKey($lecture->id)->lockForUpdate()->firstOrFail();
             Gate::forUser($actor->fresh())->authorize('manage', $current->course);
             abort_if((int) $data['version'] !== $current->version, 409, 'This lecture changed. Reload before continuing.');
@@ -191,7 +195,7 @@ class VideoLectureWorkflow
         ])->validate();
 
         DB::transaction(function () use ($actor, $lecture, $data) {
-            $this->lock();
+            WriteLock::acquire();
             $current = VideoLecture::whereKey($lecture->id)->lockForUpdate()->firstOrFail();
             Gate::forUser($actor->fresh())->authorize('manage', $current->course);
             abort_if((int) $data['version'] !== $current->version, 409, 'This lecture changed. Reload before saving.');
@@ -235,7 +239,7 @@ class VideoLectureWorkflow
 
         try {
             DB::transaction(function () use ($actor, $lecture, $data, $path) {
-                $this->lock();
+                WriteLock::acquire();
                 $current = VideoLecture::whereKey($lecture->id)->lockForUpdate()->firstOrFail();
                 Gate::forUser($actor->fresh())->authorize('manage', $current->course);
                 $track = VideoLectureTrack::firstOrNew([
@@ -287,7 +291,7 @@ class VideoLectureWorkflow
 
         try {
             DB::transaction(function () use ($actor, $lecture, $path) {
-                $this->lock();
+                WriteLock::acquire();
                 $current = VideoLecture::whereKey($lecture->id)->lockForUpdate()->firstOrFail();
                 Gate::forUser($actor->fresh())->authorize('manage', $current->course);
                 $previous = $current->poster_path;
@@ -416,10 +420,5 @@ class VideoLectureWorkflow
         if (! preg_match('/\d{2}:\d{2}[:.]\d{2}[.,]\d{3}\s*-->/', $normalized)) {
             throw ValidationException::withMessages(['file' => 'Captions must contain at least one timed cue.']);
         }
-    }
-
-    private function lock(): void
-    {
-        DB::table('lms_write_locks')->where('id', 1)->lockForUpdate()->first();
     }
 }

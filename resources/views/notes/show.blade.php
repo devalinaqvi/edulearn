@@ -5,7 +5,7 @@
 <div>
 <span class="eyebrow">{{ $note->provider==='mock' ? 'DEVELOPMENT MOCK · NO AI CALL' : 'AI-GENERATED · CHECK THE SOURCE' }}</span>
 <h1>{{ $note->title }}</h1>
-<p class="muted">Source: {{ $note->source_title }} · Model: {{ $note->model_name ?? 'Not recorded' }}{{ $note->edited_at ? ' · Edited by you' : '' }} · {{ $note->generated_at ? 'Generated '.$note->generated_at->format('M j, Y H:i').' UTC' : 'Requested '.$note->created_at->format('M j, Y H:i').' UTC' }}</p>
+<p class="muted">Source: {{ $note->source_title }} · Model: {{ $note->model_name ?? 'Not recorded' }}{{ $note->edited_at ? ' · Edited by you' : '' }} · {{ $note->generated_at ? 'Generated '.\App\Services\DisplayTime::format($note->generated_at) : 'Requested '.\App\Services\DisplayTime::format($note->created_at) }}</p>
 </div>
 <span class="badge {{ $note->status }}">{{ ucfirst($note->status) }}</span>
 </div>

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Course;
 use App\Models\User;
+use App\Services\DisplayTime;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -18,7 +19,7 @@ class ShortAnswerQuizTest extends TestCase
         $student = User::factory()->create(['role' => 'student']);
         $other = User::factory()->create(['role' => 'instructor']);
         $course = Course::create(['instructor_id' => $teacher->id, 'title' => 'Assessment', 'description' => 'Online', 'status' => 'published']);
-        $this->actingAs($teacher)->post(route('quizzes.store', $course), ['title' => 'Mixed quiz', 'instructions' => 'Respond', 'opens_at' => now()->subMinute()->format('Y-m-d H:i:s'), 'closes_at' => now()->addMinutes(10)->format('Y-m-d H:i:s'), 'duration_minutes' => 5])->assertRedirect();
+        $this->actingAs($teacher)->post(route('quizzes.store', $course), ['title' => 'Mixed quiz', 'instructions' => 'Respond', 'opens_at' => DisplayTime::forInput(now()->subMinute()), 'closes_at' => DisplayTime::forInput(now()->addMinutes(10)), 'duration_minutes' => 5])->assertRedirect();
         $quiz = DB::table('quizzes')->first();
         $this->post(route('quizzes.author', $quiz->id), ['version' => 0, 'action' => 'question', 'prompt' => 'Choose', 'options' => ['A', 'B', 'C', 'D'], 'correct' => 1, 'points' => 5])->assertRedirect();
         $this->post(route('quizzes.author', $quiz->id), ['version' => 1, 'action' => 'question', 'type' => 'short', 'prompt' => 'Explain why', 'points' => 5])->assertRedirect();

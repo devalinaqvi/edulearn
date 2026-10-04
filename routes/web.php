@@ -39,6 +39,10 @@ Route::middleware(['auth', 'auth.session', EnsureAccountIsActive::class])->group
     Route::post('/courses/{course}/lessons', [CourseController::class, 'lesson'])->name('lessons.store');
     Route::patch('/lessons/{lesson}', [CourseController::class, 'updateLesson'])->name('lessons.update');
     Route::post('/lessons/{lesson}/complete', [CourseController::class, 'complete'])->name('lessons.complete');
+    Route::post('/lessons/{lesson}/archive', [CourseController::class, 'archiveLesson'])->name('lessons.archive');
+    Route::delete('/lessons/{lesson}', [CourseController::class, 'destroyLesson'])->name('lessons.destroy');
+    Route::delete('/courses/{course}', [CourseController::class, 'destroy'])->name('courses.destroy');
+    Route::get('/trash', [CourseController::class, 'trash'])->name('trash');
     Route::post('/courses/{course}/materials', [MaterialController::class, 'store'])->name('materials.store');
     Route::post('/materials/{material}/replace', [MaterialController::class, 'replace'])->name('materials.replace');
     Route::post('/materials/{material}/archive', [MaterialController::class, 'archive'])->name('materials.archive');
@@ -46,6 +50,10 @@ Route::middleware(['auth', 'auth.session', EnsureAccountIsActive::class])->group
     Route::get('/material-revisions/{revision}/download', [MaterialController::class, 'revision'])->whereNumber('revision')->name('materials.revisions.download');
     Route::post('/courses/{course}/assignments', [AcademicController::class, 'assignment'])->name('assignments.store');
     Route::get('/assignments/{assignment}', [AcademicController::class, 'show'])->name('assignments.show');
+    Route::patch('/assignments/{assignment}', [AcademicController::class, 'update'])->name('assignments.update');
+    Route::post('/assignments/{assignment}/media', [AcademicController::class, 'attachMedia'])->name('assignments.media.store');
+    Route::delete('/assignment-media/{medium}', [AcademicController::class, 'detachMedia'])->name('assignments.media.destroy');
+    Route::match(['get', 'head'], '/assignment-media/{medium}', [AcademicController::class, 'media'])->name('assignments.media.show');
     Route::post('/assignments/{assignment}/rubric', [AcademicController::class, 'rubric'])->name('assignments.rubric');
     Route::post('/assignments/{assignment}/extensions', [AcademicController::class, 'extend'])->name('assignments.extend');
     Route::post('/assignments/{assignment}/submit', [AcademicController::class, 'submit'])->name('assignments.submit');
@@ -70,6 +78,8 @@ Route::middleware(['auth', 'auth.session', EnsureAccountIsActive::class])->group
     Route::get('/courses/{course}/quizzes', [QuizController::class, 'index'])->name('quizzes.index');
     Route::post('/courses/{course}/quizzes', [QuizController::class, 'store'])->name('quizzes.store');
     Route::get('/quizzes/{quiz}', [QuizController::class, 'show'])->whereNumber('quiz')->name('quizzes.show');
+    Route::patch('/quizzes/{quiz}', [QuizController::class, 'update'])->whereNumber('quiz')->name('quizzes.update');
+    Route::post('/quizzes/{quiz}/generate', [QuizController::class, 'generate'])->whereNumber('quiz')->middleware('throttle:notes')->name('quizzes.generate');
     Route::post('/quizzes/{quiz}/author', [QuizController::class, 'author'])->whereNumber('quiz')->name('quizzes.author');
     Route::post('/quizzes/{quiz}/start', [QuizController::class, 'start'])->whereNumber('quiz')->name('quizzes.start');
     Route::post('/quizzes/{quiz}/answers', [QuizController::class, 'answer'])->whereNumber('quiz')->name('quizzes.answer');
@@ -78,6 +88,8 @@ Route::middleware(['auth', 'auth.session', EnsureAccountIsActive::class])->group
     Route::post('/quiz-attempts/{attempt}/publish', [QuizController::class, 'publishResult'])->whereNumber('attempt')->name('quiz-attempts.publish');
     Route::get('/announcements', [AnnouncementController::class, 'index'])->name('announcements.index');
     Route::post('/announcements', [AnnouncementController::class, 'store'])->name('announcements.platform');
+    Route::patch('/announcements/{announcement}', [AnnouncementController::class, 'update'])->name('announcements.update');
+    Route::delete('/announcements/{announcement}', [AnnouncementController::class, 'destroy'])->name('announcements.discard');
     Route::post('/announcements/{announcement}/read', [AnnouncementController::class, 'read'])->name('announcements.read');
     Route::get('/notes', [NoteController::class, 'index'])->name('notes.index');
     Route::post('/notes', [NoteController::class, 'store'])->middleware('throttle:notes')->name('notes.store');

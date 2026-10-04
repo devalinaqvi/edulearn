@@ -1,3 +1,48 @@
+// ---- Transient messages --------------------------------------------------
+// Server-rendered toasts are already in the markup; this adds dismissal, timing, and a single
+// entry point so background requests report failures the same way a redirect does.
+const toastRegion = document.querySelector('[data-toasts]');
+
+const dismissToast = (toast) => {
+ if (toast && toast.parentNode) { toast.remove(); }
+};
+
+document.addEventListener('click', (event) => {
+ const button = event.target.closest('[data-toast-dismiss]');
+ if (button) { dismissToast(button.closest('[data-toast]')); }
+});
+
+// Successes clear themselves; problems stay until they are acknowledged.
+for (const toast of document.querySelectorAll('[data-toast][data-toast-auto]')) {
+ const delay = Number(toast.dataset.toastAuto) || 8000;
+ let timer = window.setTimeout(() => dismissToast(toast), delay);
+ // Reading or interacting with a message should not race a timer.
+ toast.addEventListener('mouseenter', () => window.clearTimeout(timer));
+ toast.addEventListener('focusin', () => window.clearTimeout(timer));
+ toast.addEventListener('mouseleave', () => { timer = window.setTimeout(() => dismissToast(toast), delay); });
+}
+
+window.lmsToast = (message, kind = 'error') => {
+ if (!toastRegion || !message) { return; }
+ const live = toastRegion.querySelector(kind === 'success' ? '[aria-live="polite"]' : '[aria-live="assertive"]');
+ if (!live) { return; }
+ const toast = document.createElement('div');
+ toast.className = 'toast toast-' + (kind === 'success' ? 'success' : 'error');
+ toast.setAttribute('data-toast', '');
+ const text = document.createElement('p');
+ text.textContent = message;
+ const close = document.createElement('button');
+ close.type = 'button';
+ close.className = 'toast-close';
+ close.setAttribute('data-toast-dismiss', '');
+ close.setAttribute('aria-label', 'Dismiss this message');
+ close.textContent = '\u00d7';
+ toast.append(text, close);
+ live.appendChild(toast);
+ if (kind === 'success') { window.setTimeout(() => dismissToast(toast), 8000); }
+ return toast;
+};
+
 document.addEventListener('submit', (event) => {
  const form = event.target;
  if (form.dataset.submitting === 'true') {
@@ -16,7 +61,9 @@ document.addEventListener('submit', (event) => {
   const file = form.querySelector('input[type="file"]')?.files?.[0];
   const maxBytes = Number(form.dataset.maxUploadBytes || 0);
   if (file && maxBytes > 0 && file.size > maxBytes) {
-   status.textContent = 'This recording exceeds this server’s upload ceiling (' + (maxBytes / 1048576).toFixed(1) + ' MB). Ask the administrator to raise PHP and web server limits, or choose a smaller file.';
+   const message = 'This recording exceeds this server’s upload ceiling (' + (maxBytes / 1048576).toFixed(1) + ' MB). Ask the administrator to raise PHP and web server limits, or choose a smaller file.';
+   status.textContent = message;
+   if (window.lmsToast) { window.lmsToast(message, 'error'); }
    return;
   }
   const xhr = new XMLHttpRequest();
@@ -39,6 +86,8 @@ document.addEventListener('submit', (event) => {
    form.removeAttribute('aria-busy');
    if (button) button.disabled = false;
    status.textContent = message;
+   // Same presentation as a server-flashed problem, instead of text only this form can show.
+   if (window.lmsToast) { window.lmsToast(message, 'error'); }
   };
   xhr.onload = () => {
    let result = {};
@@ -179,4 +228,101 @@ if (aiProvider && aiModel) {
  aiModel.addEventListener('change', () => { choices[aiProvider.value] = aiModel.value; });
  aiProvider.addEventListener('change', apply);
  apply();
+}
+
+// ---- Lesson rich text ----------------------------------------------------
+// Progressive enhancement over the textarea that already works: with scripting unavailable the
+// plain field is submitted as-is and stored as text. When this runs, an editable surface takes
+// its place, the textarea is kept in sync as the authoritative form value, and the format flag
+// switches to html. Nothing here is a security control — the server sanitizes on every save.
+for (const host of document.querySelectorAll('[data-editor]')) {
+ const source = host.querySelector('[data-editor-source]');
+ const toolbar = host.querySelector('[data-editor-toolbar]');
+ const format = host.querySelector('[data-editor-format]');
+ if (!source || !toolbar || !format || !document.execCommand) { continue; }
+
+ const surface = document.createElement('div');
+ surface.className = 'editor-surface prose';
+ surface.contentEditable = 'true';
+ surface.setAttribute('role', 'textbox');
+ surface.setAttribute('aria-multiline', 'true');
+ surface.setAttribute('aria-label', 'Lesson content');
+ surface.tabIndex = 0;
+
+ // Existing plain-text lessons become paragraphs rather than one run-on block.
+ if (format.value === 'html') {
+  surface.innerHTML = source.value;
+ } else {
+  for (const paragraph of source.value.split(/\n{2,}/)) {
+   const p = document.createElement('p');
+   p.textContent = paragraph.trim();
+   if (p.textContent) { surface.appendChild(p); }
+  }
+  if (!surface.childNodes.length) { surface.appendChild(document.createElement('p')); }
+ }
+
+ const wasRequired = source.hasAttribute('required');
+ source.hidden = true;
+ source.removeAttribute('required');
+ surface.setAttribute('aria-required', wasRequired ? 'true' : 'false');
+ host.insertBefore(surface, source);
+
+ const sync = () => {
+  source.value = surface.innerHTML;
+  format.value = 'html';
+ };
+ surface.addEventListener('input', sync);
+ surface.addEventListener('blur', sync);
+ host.closest('form')?.addEventListener('submit', (event) => {
+  sync();
+  // The browser can no longer enforce `required` on a hidden field, so stand in for it.
+  if (wasRequired && !surface.textContent.trim() && !surface.querySelector('img,hr')) {
+   event.preventDefault();
+   surface.focus();
+   if (window.lmsToast) { window.lmsToast('Write the lesson content before saving.', 'error'); }
+  }
+ });
+ sync();
+
+ const refreshState = () => {
+  for (const button of toolbar.querySelectorAll('[aria-pressed]')) {
+   let active = false;
+   try { active = document.queryCommandState(button.dataset.command); } catch (_) {}
+   button.setAttribute('aria-pressed', active ? 'true' : 'false');
+  }
+ };
+ document.addEventListener('selectionchange', () => {
+  if (document.activeElement === surface) { refreshState(); }
+ });
+
+ toolbar.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-command]');
+  if (!button) { return; }
+  event.preventDefault();
+  surface.focus();
+  const command = button.dataset.command;
+  if (command === 'createLink') {
+   const url = window.prompt('Link address (https://…)');
+   if (!url) { return; }
+   // Only schemes the server will keep; anything else is refused before it is inserted.
+   if (!/^(https?:|mailto:)/i.test(url)) {
+    if (window.lmsToast) { window.lmsToast('Links must start with https://, http:// or mailto:.', 'error'); }
+    return;
+   }
+   document.execCommand('createLink', false, url);
+  } else if (button.dataset.value) {
+   document.execCommand(command, false, button.dataset.value);
+  } else {
+   document.execCommand(command, false, null);
+  }
+  sync();
+  refreshState();
+ });
+
+ // Pasting carries the clipboard's markup; take the text and let the author format it.
+ surface.addEventListener('paste', (event) => {
+  event.preventDefault();
+  const text = (event.clipboardData || window.clipboardData).getData('text/plain');
+  document.execCommand('insertText', false, text);
+ });
 }

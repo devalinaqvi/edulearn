@@ -115,10 +115,13 @@ class OnlineLmsTest extends TestCase
         Storage::fake('local');
         $this->seed();
         $this->seed();
-        $this->assertDatabaseCount('courses', 3);
-        $this->assertDatabaseCount('quizzes', 1);
-        $this->assertDatabaseCount('assignments', 4);
+        // Counts cover the three published demo courses plus the draft, archived and
+        // content-free courses the development-states seeder adds.
+        $this->assertDatabaseCount('courses', 6);
+        $this->assertDatabaseCount('quizzes', 3);
+        $this->assertDatabaseCount('assignments', 5);
         $this->assertDatabaseCount('users', 3);
+        $this->assertSame(['archived', 'draft', 'published', 'published', 'published', 'published'], DB::table('courses')->orderBy('status')->pluck('status')->all());
         $this->assertFalse(Schema::hasTable('universities'));
         $this->assertSame(['admin', 'instructor', 'student'], DB::table('users')->orderBy('role')->pluck('role')->all());
     }

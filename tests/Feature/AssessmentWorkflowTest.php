@@ -6,6 +6,7 @@ use App\Models\Course;
 use App\Models\Enrollment;
 use App\Models\Submission;
 use App\Models\User;
+use App\Services\DisplayTime;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -57,7 +58,7 @@ class AssessmentWorkflowTest extends TestCase
         $assignment->update(['due_at' => now()->subHour()]);
         $this->actingAs($student)->post(route('assignments.submit', $assignment), ['body' => 'Late answer'])->assertSessionHasErrors('deadline');
         $this->assertDatabaseCount('submissions', 0);
-        $payload = ['user_id' => $student->id, 'due_at' => now()->addDay()->format('Y-m-d H:i:s'), 'reason' => 'Approved individual extension'];
+        $payload = ['user_id' => $student->id, 'due_at' => DisplayTime::forInput(now()->addDay()), 'reason' => 'Approved individual extension'];
         $this->post(route('assignments.extend', $assignment), $payload)->assertForbidden();
         $this->actingAs($teacher)->post(route('assignments.extend', $assignment), array_replace($payload, ['user_id' => $teacher->id]))->assertUnprocessable();
         $this->post(route('assignments.extend', $assignment), $payload)->assertRedirect();

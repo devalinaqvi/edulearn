@@ -15,7 +15,8 @@ class SourceText
     public function extract(Lesson|Material|VideoLecture $source): string
     {
         if ($source instanceof Lesson) {
-            $text = $source->body;
+            // Rich-text lessons are flattened: the model is given prose, not markup.
+            $text = $source->plainBody();
         } elseif ($source instanceof VideoLecture) {
             $text = $this->fromLecture($source);
         } else {

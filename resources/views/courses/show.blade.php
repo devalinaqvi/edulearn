@@ -30,7 +30,7 @@
 <span class="muted">{{ in_array($lesson->id,$completed) ? '✓ Complete' : '+' }}</span>
 </summary>
 <div class="lesson-content">
-<div class="prose">{{ $lesson->body }}</div>@if(!$manage)<div class="row wrap">
+<div class="prose">@if($lesson->isRichText()){!! $lesson->body !!}@else{!! nl2br(e($lesson->body)) !!}@endif</div>@if(!$manage)<div class="row wrap">
 <form method="post" action="{{ route('lessons.complete',$lesson) }}">@csrf<input type="hidden" name="completed" value="{{ in_array($lesson->id,$completed) ? 0 : 1 }}">
 <button class="button secondary">{{ in_array($lesson->id,$completed) ? 'Mark incomplete' : '✓ Mark complete' }}</button>
 </form>
@@ -44,10 +44,29 @@
 </label>
 <label>Position<input name="position" type="number" min="1" value="{{ $lesson->position }}" required>
 </label>
-<label>Content<textarea name="body" rows="8" required>{{ $lesson->body }}</textarea>
-</label>
+<label for="lesson-body-{{ $lesson->id }}">Content</label>
+<div class="editor" data-editor>
+<div class="editor-toolbar" role="toolbar" aria-label="Formatting" data-editor-toolbar>
+<button type="button" data-command="bold" aria-pressed="false" title="Bold (Ctrl+B)"><strong>B</strong></button>
+<button type="button" data-command="italic" aria-pressed="false" title="Italic (Ctrl+I)"><em>I</em></button>
+<button type="button" data-command="underline" aria-pressed="false" title="Underline (Ctrl+U)"><u>U</u></button>
+<button type="button" data-command="formatBlock" data-value="h2" title="Heading">H2</button>
+<button type="button" data-command="formatBlock" data-value="h3" title="Subheading">H3</button>
+<button type="button" data-command="insertUnorderedList" title="Bulleted list">&bull; List</button>
+<button type="button" data-command="insertOrderedList" title="Numbered list">1. List</button>
+<button type="button" data-command="formatBlock" data-value="blockquote" title="Quote">&ldquo;&rdquo;</button>
+<button type="button" data-command="formatBlock" data-value="pre" title="Code block">&lt;/&gt;</button>
+<button type="button" data-command="createLink" title="Add a link">Link</button>
+<button type="button" data-command="removeFormat" title="Clear formatting">Clear</button>
+</div>
+<textarea id="lesson-body-{{ $lesson->id }}" name="body" rows="10" required data-editor-source>{{ $lesson->isRichText() ? $lesson->body : $lesson->body }}</textarea>
+<input type="hidden" name="body_format" value="{{ $lesson->body_format ?? 'text' }}" data-editor-format>
+</div>
+<p class="muted">Formatting is checked again on the server; anything unsupported is removed when the lesson is saved.</p>
 <button class="button">Update lesson</button>
 </form>
+<form method="post" action="{{ route('lessons.archive',$lesson) }}" data-confirm="Move &ldquo;{{ $lesson->title }}&rdquo; to Trash? Learners will no longer see it and it will stop counting toward course progress.">@csrf<input type="hidden" name="version" value="{{ $lesson->version }}"><input type="hidden" name="action" value="archive"><button class="button secondary">Move to Trash</button></form>
+<p class="muted">Archiving withdraws a lesson from learners without discarding progress already recorded against it. Permanent deletion is offered in <a href="{{ route('trash') }}">Trash</a>, and only where nothing depends on the lesson.</p>
 </details>@endif</div>
 </details>@empty<div class="empty panel">Lessons will appear here when your instructor adds them.</div>@endforelse
 @if($manage)<details class="panel">
@@ -56,9 +75,25 @@
 </label>
 <label>Order<input type="number" name="position" min="1" value="{{ ($course->lessons->max('position') ?? 0)+1 }}" required>
 </label>
-<label>Lesson text<textarea name="body" rows="7" required>
-</textarea>
-</label>
+<label for="new-lesson-body">Lesson text</label>
+<div class="editor" data-editor>
+<div class="editor-toolbar" role="toolbar" aria-label="Formatting" data-editor-toolbar>
+<button type="button" data-command="bold" aria-pressed="false" title="Bold (Ctrl+B)"><strong>B</strong></button>
+<button type="button" data-command="italic" aria-pressed="false" title="Italic (Ctrl+I)"><em>I</em></button>
+<button type="button" data-command="underline" aria-pressed="false" title="Underline (Ctrl+U)"><u>U</u></button>
+<button type="button" data-command="formatBlock" data-value="h2" title="Heading">H2</button>
+<button type="button" data-command="formatBlock" data-value="h3" title="Subheading">H3</button>
+<button type="button" data-command="insertUnorderedList" title="Bulleted list">&bull; List</button>
+<button type="button" data-command="insertOrderedList" title="Numbered list">1. List</button>
+<button type="button" data-command="formatBlock" data-value="blockquote" title="Quote">&ldquo;&rdquo;</button>
+<button type="button" data-command="formatBlock" data-value="pre" title="Code block">&lt;/&gt;</button>
+<button type="button" data-command="createLink" title="Add a link">Link</button>
+<button type="button" data-command="removeFormat" title="Clear formatting">Clear</button>
+</div>
+<textarea id="new-lesson-body" name="body" rows="7" required data-editor-source></textarea>
+<input type="hidden" name="body_format" value="text" data-editor-format>
+</div>
+<p class="muted">Formatting is checked again on the server; anything unsupported is removed when the lesson is saved.</p>
 <button class="button">Add lesson</button>
 </form>
 </details>@endif
@@ -69,7 +104,7 @@
 </div>@forelse($course->assignments as $assignment)@php($mine=$assignment->submissions->first())<a class="panel assignment-link" href="{{ route('assignments.show',$assignment) }}">
 <div>
 <h3>{{ $assignment->title }}</h3>
-<p class="muted">Due {{ $assignment->due_at->format('M j, Y · H:i') }} UTC · {{ $assignment->max_marks }} marks</p>
+<p class="muted">Due @showtime($assignment->due_at) · {{ $assignment->max_marks }} marks</p>
 </div>
 <span class="badge">{{ $mine ? ucfirst($mine->status) : ($manage ? 'Review →' : 'To do →') }}</span>
 </a>@empty<div class="empty panel">No assignments yet.</div>@endforelse
@@ -81,7 +116,7 @@
 </textarea>
 </label>
 <div class="two-col">
-<label>Deadline (UTC)<input type="datetime-local" name="due_at" required>
+<label>Deadline (@tz)<input type="datetime-local" name="due_at" required>
 </label>
 <label>Maximum marks<input type="number" name="max_marks" value="100" min="1" max="100000" required>
 </label>
@@ -120,17 +155,17 @@
 </label>
 <label>Replacement file<input type="file" name="file" accept=".txt,.md,.pdf,.docx,.pptx" required>
 </label>
-<label>Reason<input name="reason" required maxlength="1000" placeholder="Why is this file being replaced?">
-</label>
+<details class="reason-optional"><summary>Add a reason (optional)</summary><label>Reason<input name="reason" maxlength="1000" placeholder="Why is this file being replaced?">
+</label></details>
 <progress data-upload-progress max="100" value="0" aria-label="Upload progress" hidden></progress><p data-upload-status role="status" aria-live="polite"></p><button class="button secondary">Replace file</button>
 </form>
 <form method="post" action="{{ route('materials.archive',$material) }}" data-confirm="{{ $material->isArchived() ? 'Restore this material for learners?' : 'Archive this material? Learners lose access and new AI notes are blocked. Existing notes are kept.' }}">@csrf<input type="hidden" name="version" value="{{ $material->version }}">
 <input type="hidden" name="action" value="{{ $material->isArchived() ? 'restore' : 'archive' }}">
-@unless($material->isArchived())<label>Reason<input name="reason" required maxlength="1000">
-</label>@endunless<button class="button secondary">{{ $material->isArchived() ? 'Restore for learners' : 'Archive material' }}</button>
+@unless($material->isArchived())<details class="reason-optional"><summary>Add a reason (optional)</summary><label>Reason<input name="reason" maxlength="1000">
+</label></details>@endunless<button class="button secondary">{{ $material->isArchived() ? 'Restore for learners' : 'Archive material' }}</button>
 </form>
 @if(($materialRevisions[$material->id] ?? collect())->isNotEmpty())<h4>Previous versions</h4>
-<ul class="revision-list">@foreach($materialRevisions[$material->id] as $revision)<li>v{{ $revision->version }} · {{ $revision->original_name }} · replaced {{ \Illuminate\Support\Carbon::parse($revision->replaced_at)->format('M j, Y · H:i') }} UTC by {{ $revision->replaced_by_name ?? 'unknown' }}
+<ul class="revision-list">@foreach($materialRevisions[$material->id] as $revision)<li>v{{ $revision->version }} · {{ $revision->original_name }} · replaced @showtime($revision->replaced_at) by {{ $revision->replaced_by_name ?? 'unknown' }}
 <a href="{{ route('materials.revisions.download',$revision->id) }}">Download ↓</a>
 <small class="muted">{{ $revision->reason }}</small>
 </li>@endforeach</ul>@endif
@@ -163,7 +198,12 @@
 <label>Message<textarea name="body" rows="4" required>
 </textarea>
 </label>
-<button class="button">Publish announcement</button>
+<fieldset class="choice-group"><legend>When should this appear?</legend>
+<label><input type="radio" name="state" value="now" checked> Publish now</label>
+<label><input type="radio" name="state" value="schedule"> Schedule for later</label>
+<label><input type="radio" name="state" value="draft"> Save as a draft</label>
+</fieldset>
+<label>Publication time (@tz)<input type="datetime-local" name="publish_at" value="{{ old('publish_at') }}"><small class="muted">Used only when scheduling. The server releases it at this time; nothing needs to stay open.</small></label><button class="button">Publish announcement</button>
 </form>
 </details>@endif
 </aside>

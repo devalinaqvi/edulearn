@@ -57,5 +57,6 @@ class DatabaseSeeder extends Seeder
             Material::firstOrCreate(['course_id' => $course->id, 'path' => $path], ['uploader_id' => $instructor->id, 'size_bytes' => Storage::disk('local')->size($path), 'uploaded_at' => now(), 'title' => 'Course revision reader', 'original_name' => 'revision-reader.txt', 'format' => 'txt']);
         }
         $this->call(AssessmentDemoSeeder::class);
+        $this->call(DevelopmentStatesSeeder::class);
     }
 }

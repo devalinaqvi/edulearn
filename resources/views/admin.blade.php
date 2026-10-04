@@ -19,9 +19,9 @@
 <div class="two-col"><label>Name<input name="name" value="{{ $user->name }}" required maxlength="100"></label><label>Email<input type="email" name="email" value="{{ $user->email }}" required></label></div>
 <div class="two-col"><label>Role<select name="role">@foreach(['student' => 'Learner', 'instructor' => 'Instructor', 'admin' => 'Administrator'] as $role => $label)<option value="{{ $role }}" @selected($user->role === $role)>{{ $label }}</option>@endforeach</select></label>
 <label>Account access<select name="is_active"><option value="1" @selected($user->is_active)>Active</option><option value="0" @selected(!$user->is_active)>Inactive</option></select></label></div>
-<label>Reason<textarea name="reason" maxlength="1000" required></textarea></label><p class="muted">Last sign-in: {{ $user->last_login_at ? $user->last_login_at->format('M j, Y H:i').' UTC' : 'Not recorded' }}</p><button class="button secondary">Save account</button>
+<label>Reason<textarea name="reason" maxlength="1000" required></textarea></label><p class="muted">Last sign-in: {{ $user->last_login_at ? \App\Services\DisplayTime::format($user->last_login_at) : 'Not recorded' }}</p><button class="button secondary">Save account</button>
 </form></details>
 @endforeach
 {{ $users->links() }}
-<section class="panel"><h2>Recent account activity</h2><div class="table-scroll"><table><caption>Most recent 20 recorded events</caption><thead><tr><th scope="col">Account</th><th scope="col">Action</th><th scope="col">Time (UTC)</th></tr></thead><tbody>@forelse($activity as $event)<tr><td>{{ $event->name }}</td><td>{{ ucfirst(str_replace('_', ' ', $event->event)) }}</td><td>{{ $event->created_at }}</td></tr>@empty<tr><td colspan="3">No recorded activity yet.</td></tr>@endforelse</tbody></table></div></section>
+<section class="panel"><h2>Recent account activity</h2><div class="table-scroll"><table><caption>Most recent 20 recorded events</caption><thead><tr><th scope="col">Account</th><th scope="col">Action</th><th scope="col">Time (@tz)</th></tr></thead><tbody>@forelse($activity as $event)<tr><td>{{ $event->name }}</td><td>{{ ucfirst(str_replace('_', ' ', $event->event)) }}</td><td>@showtime($event->created_at)</td></tr>@empty<tr><td colspan="3">No recorded activity yet.</td></tr>@endforelse</tbody></table></div></section>
 @endsection

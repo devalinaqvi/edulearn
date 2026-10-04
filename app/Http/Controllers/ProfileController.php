@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\WriteLock;
 use App\Http\Requests\ChangePasswordRequest;
 use App\Http\Requests\UpdateProfileRequest;
 use Illuminate\Contracts\View\View;
@@ -20,7 +21,7 @@ class ProfileController extends Controller
     public function update(UpdateProfileRequest $request): RedirectResponse
     {
         DB::transaction(function () use ($request) {
-            DB::table('lms_write_locks')->where('id', 1)->lockForUpdate()->first();
+            WriteLock::acquire();
             $user = $request->user()->fresh();
             abort_unless($user->is_active && $user->auth_version === (int) $request->session()->get('auth_version', 0), 403);
             $user->fill($request->safe()->only(['name', 'email']));
@@ -38,7 +39,7 @@ class ProfileController extends Controller
     public function password(ChangePasswordRequest $request): RedirectResponse
     {
         DB::transaction(function () use ($request) {
-            DB::table('lms_write_locks')->where('id', 1)->lockForUpdate()->first();
+            WriteLock::acquire();
             $user = $request->user()->fresh();
             abort_unless($user->is_active && $user->auth_version === (int) $request->session()->get('auth_version', 0), 403);
             $user->forceFill(['password' => $request->validated('password'), 'remember_token' => Str::random(60), 'auth_version' => $user->auth_version + 1])->save();

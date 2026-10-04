@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\WriteLock;
 use App\Http\Requests\UpdateAiConfigurationRequest;
 use App\Models\AiConfiguration;
 use App\Services\AiSettings;
@@ -57,7 +58,7 @@ class AiAdminController extends Controller
             }
         }
         DB::transaction(function () use ($request, $settings, $data) {
-            DB::table('lms_write_locks')->where('id', 1)->lockForUpdate()->first();
+            WriteLock::acquire();
             abort_unless($request->user()->fresh()->is_active && $request->user()->fresh()->role === 'admin', 403);
             $current = $settings->current();
             abort_unless((int) $data['version'] === $current->version, 409, 'AI settings changed. Reload before saving.');

@@ -18,15 +18,12 @@
 </a>
 <div class="workspace-label">YOUR LEARNING WORKSPACE</div>
 <nav aria-label="Main navigation">
-<a class="{{ request()->routeIs('dashboard*') ? 'active' : '' }}" href="{{ route('dashboard') }}">
-<span>◫</span> Overview</a>
-<a class="{{ request()->routeIs('courses.*','assignments.*','quizzes.*') ? 'active' : '' }}" href="{{ route('courses.index') }}">
-<span>▤</span> {{ auth()->user()->role === 'student' ? 'Course catalog' : 'Manage courses' }}</a>
-<a class="{{ request()->routeIs('notes.*') ? 'active' : '' }}" href="{{ route('notes.index') }}">
-<span>✧</span> My study notes</a>
-<a href="{{ route('announcements.index') }}"><span aria-hidden="true">◇</span> Announcements</a>
-<a href="{{ route('profile.show') }}" class="{{ request()->routeIs('profile.*') ? 'active' : '' }}"><span>○</span> My profile</a>@if(auth()->user()->role === 'admin')<a class="{{ request()->routeIs('admin*') ? 'active' : '' }}" href="{{ route('admin') }}">
-<span>⚙</span> Administration</a>@endif</nav>
+<a class="{{ request()->routeIs('dashboard*') ? 'active' : '' }}" href="{{ route('dashboard') }}">@include('partials.icon', ['name' => 'overview']) Overview</a>
+<a class="{{ request()->routeIs('courses.*','assignments.*','quizzes.*') ? 'active' : '' }}" href="{{ route('courses.index') }}">@include('partials.icon', ['name' => 'courses']) {{ auth()->user()->role === 'student' ? 'Course catalog' : 'Manage courses' }}</a>
+<a class="{{ request()->routeIs('notes.*') ? 'active' : '' }}" href="{{ route('notes.index') }}">@include('partials.icon', ['name' => 'notes']) My study notes</a>
+<a class="{{ request()->routeIs('announcements.*') ? 'active' : '' }}" href="{{ route('announcements.index') }}">@include('partials.icon', ['name' => 'announcements']) Announcements</a>
+@if(auth()->user()->role !== 'student')<a class="{{ request()->routeIs('trash') ? 'active' : '' }}" href="{{ route('trash') }}">@include('partials.icon', ['name' => 'trash']) Trash</a>@endif
+<a href="{{ route('profile.show') }}" class="{{ request()->routeIs('profile.*') ? 'active' : '' }}">@include('partials.icon', ['name' => 'profile']) My profile</a>@if(auth()->user()->role === 'admin')<a class="{{ request()->routeIs('admin*') ? 'active' : '' }}" href="{{ route('admin') }}">@include('partials.icon', ['name' => 'administration']) Administration</a>@endif</nav>
 <div class="sidebar-tip">
 <span class="spark">✧</span>
 <h3>A little clarity.<br>A lot of possibility.</h3>
@@ -39,7 +36,7 @@
 <strong>{{ auth()->user()->name }}</strong>
 <small>{{ ucfirst(auth()->user()->role).' learning account' }}</small>
 </div>
-<form method="post" action="{{ route('logout') }}">@csrf<button class="logout" title="Sign out" aria-label="Sign out">↪</button>
+<form method="post" action="{{ route('logout') }}">@csrf<button class="logout" title="Sign out" aria-label="Sign out">@include('partials.icon', ['name' => 'logout'])</button>
 </form>
 </div>
 </aside>
@@ -68,11 +65,7 @@
 </section>
 <main class="auth-content" id="main">
 @endauth
-@if(session('status'))<div class="notice" role="status">{{ session('status') }}</div>@endif
-@if($errors->any())<div class="notice error" role="alert">
-<strong>Please check the following:</strong>
-<ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul>
-</div>@endif
+@include('partials.toasts')
 @yield('content')
 </main>@auth<footer>Built for focused learning. <span>EduLearn</span>
 </footer>

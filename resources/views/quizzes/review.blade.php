@@ -8,5 +8,5 @@
 <label>Feedback<textarea name="feedback" maxlength="10000">{{ $attempt->review_feedback }}</textarea></label><label>Reason for review<input name="reason" required maxlength="1000"></label><button class="button">Save draft review</button></form>
 <form class="panel" method="post" action="{{ route('quiz-attempts.publish', $attempt->id) }}" data-confirm="Publish this reviewed result to the learner?">@csrf<input type="hidden" name="version" value="{{ $attempt->version }}"><h2>Publish result</h2><p>Current score: {{ 0 + $attempt->score }}. Short-answer marks must be reviewed. Publication is available after the quiz closes.</p><label>Reason<input name="reason" required maxlength="1000"></label><label><input type="checkbox" name="confirm" value="1" required> I have reviewed this result.</label><button class="button">Publish result</button></form>
 @endif
-<details class="panel"><summary>Review and publication history</summary>@foreach($history as $change)<p>{{ ucfirst($change->event) }} · {{ $change->created_at }} UTC · {{ $change->reason }}</p>@endforeach</details>
+<details class="panel"><summary>Review and publication history</summary>@foreach($history as $change)<p>{{ ucfirst($change->event) }} · @showtime($change->created_at) · {{ $change->reason }}</p>@endforeach</details>
 @endsection

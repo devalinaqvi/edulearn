@@ -33,12 +33,26 @@ class FreshInstallationTest extends TestCase
         foreach (['dashboard.'.$role, 'courses.index', 'profile.show', 'notes.index', 'announcements.index'] as $route) {
             $this->get(route($route))->assertOk();
         }
-        foreach (Course::all() as $course) {
+        // The seed deliberately includes draft and archived courses, which a learner must not
+        // reach; staff manage every course regardless of its state.
+        $account = User::where('email', $role.'@acumen.test')->sole();
+        $reachable = $role === 'student'
+            ? Course::where('status', 'published')->whereHas('enrollments', fn ($query) => $query->where('user_id', $account->id))->get()
+            : Course::all();
+        $this->assertNotEmpty($reachable);
+
+        foreach ($reachable as $course) {
             foreach (['courses.show', 'courses.overview', 'lectures.index', 'quizzes.index'] as $route) {
                 $this->get(route($route, $course))->assertOk();
             }
             foreach ($course->assignments as $assignment) {
                 $this->get(route('assignments.show', $assignment))->assertOk();
+            }
+        }
+
+        if ($role === 'student') {
+            foreach (['EL-DRAFT', 'EL-ARCHIVE', 'EL-EMPTY'] as $code) {
+                $this->get(route('courses.show', Course::where('code', $code)->sole()))->assertForbidden();
             }
         }
         foreach (Material::all() as $material) {

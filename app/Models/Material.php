@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Material extends Model
 {
@@ -18,12 +19,12 @@ class Material extends Model
         return $this->status === 'archived';
     }
 
-    public function uploader()
+    public function uploader(): BelongsTo
     {
         return $this->belongsTo(User::class, 'uploader_id');
     }
 
-    public function course()
+    public function course(): BelongsTo
     {
         return $this->belongsTo(Course::class);
     }

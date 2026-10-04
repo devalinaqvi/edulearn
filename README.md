@@ -4,7 +4,25 @@
 
 A fully online LMS under active implementation with Laravel 13.31, PHP 8.3, MySQL, Blade and private file storage. The source contains course learning, assignments, timed multiple-choice quizzes and private study notes, with administrator-managed accounts and learner self-enrollment. No active university ERP workflow is part of the product.
 
-See the [requirements checklist and milestone plan](docs/requirements-status.md), [scope conversion audit](docs/online-lms-audit.md), and [validation record](docs/validation.md). These distinguish implemented behavior from incomplete SRS requirements. This is not a production-readiness claim.
+See the [architecture and operating reference](docs/architecture.md), [requirements checklist and milestone plan](docs/requirements-status.md), [scope conversion audit](docs/online-lms-audit.md), and [validation record](docs/validation.md). These distinguish implemented behavior from incomplete SRS requirements. This is not a production-readiness claim.
+
+Diagrams are in [docs/diagrams/](docs/diagrams/) as Mermaid sources, and the same material is collected in [docs/EduLearn-production-readiness.pdf](docs/EduLearn-production-readiness.pdf). Both are generated locally and are not published anywhere.
+
+## Times and timezones
+
+Timestamps are stored in UTC. Staff type and read times in `LMS_DISPLAY_TIMEZONE` (default `Asia/Karachi`, shown as PKT). Conversion happens in `App\Services\DisplayTime` at two edges only: form input is converted to UTC **before validation runs**, so relative rules such as `after:now` compare two instants rather than a wall clock against an instant; display converts back and names the zone. No fixed offset is ever added or subtracted.
+
+## Removing content
+
+Lessons, materials, video lectures and courses are archived rather than deleted. Archived content leaves the learner's view and stops counting toward progress while every record already earned is retained. **Trash** (`/trash`) lists archived content and offers permanent deletion only where `App\Services\DependencyAnalyzer` finds nothing referring to the record; otherwise it explains which records are being preserved. Database constraints remain the final guard and are never disabled.
+
+## Lesson content
+
+Lesson bodies may be written with the built-in formatting toolbar. HTML is sanitized against an allowlist by `App\Services\RichText` on save, so stored content is already safe; the editor's own filtering is a convenience for the author and is never relied upon. Lessons written before this feature keep their plain-text format and stay escaped.
+
+## AI-drafted quiz questions
+
+An instructor can draft questions for a **draft** quiz from one course source. Generated items are ordinary draft questions: malformed, duplicate and unanswerable ones are discarded, a published quiz refuses them outright, and nothing reaches learners until a person reviews and publishes the quiz.
 
 ## Local setup
 
@@ -35,6 +53,25 @@ The current frontend uses local CSS/JavaScript and Blade. No npm manifest or ass
 | Learner | student@acumen.test | Learning-demo-2026! |
 
 Existing email identifiers/passwords are preserved through rebranding. Seeders are local/testing-only and never appropriate for production. They retain account passwords but refresh demonstration roles and reader files. Public signup is disabled. Administrators provision accounts and manage course access. Following the updated product decision, active learners can enroll in published courses from the catalog. Repeated enrollment requests are idempotent. Explicit administrator removals require administrator reinstatement. Share initial credentials through an approved secure channel; they are never written to activity logs.
+
+## Development database reset and seeding
+
+These are development workflows. `lms:erase` deletes application data and refuses to run unprompted in production; none of them is reachable from the web interface.
+
+```sh
+php artisan optimize:clear                              # a cached config hides the real target
+php artisan lms:erase                                   # delete all application DATA, keep the schema
+php artisan lms:erase --force --files                   # no prompt, and delete private uploads too
+
+php artisan db:seed --class=MinimalLoginSeeder          # just the three role accounts, no content
+php artisan db:seed                                     # complete development dataset
+```
+
+`lms:erase` is not `migrate:fresh`: tables, indexes, foreign keys and the `migrations` history are left untouched, and only rows are removed. The deletion order is derived from the live foreign-key graph at run time, so constraints stay enabled throughout — a wrong order fails loudly instead of leaving orphans. It prints the environment, connection, host and database before asking, and aborts outright if a cached config means that target cannot be trusted.
+
+Two rows are recreated afterwards because the application cannot run without them: `lms_write_locks` row 1, which every serialized mutation acquires, and the `site_name` setting.
+
+An installation holding only the minimal accounts is a supported state — dashboards, the catalog, notes, announcements, profile and administration all render their empty states. The complete seed additionally covers draft, archived and content-free courses, a graded and published submission, a finalized quiz attempt, and live, scheduled and draft announcements.
 
 ## Accounts and sessions
 
@@ -69,14 +106,13 @@ Create a dedicated MySQL test database (default `acumen_university_test`) and gr
 php artisan config:clear
 DB_CONNECTION=mysql DB_DATABASE=acumen_university_test vendor/bin/phpunit
 
-vendor/bin/phpunit                 # portable SQLite run
 vendor/bin/pint --format agent
 composer validate --no-check-publish
 php artisan view:cache --no-interaction
 php artisan route:list --except-vendor
 ```
 
-Portable tests use isolated SQLite; the delivered application uses MySQL. MySQL integration tests require a dedicated test database. The destructive upgrade fixture explicitly permits only `acumen_university_test` on MySQL; that retained test database name has no relationship to the active product scope.
+There is no SQLite run. `tests/TestCase.php` refuses any connection that is not MySQL, and `phpunit.xml` pins `DB_CONNECTION=mysql`, so the isolated MySQL database above is the only way to run the suite. The destructive upgrade fixture explicitly permits only `acumen_university_test`; that retained test database name has no relationship to the active product scope.
 
 `tests/TestCase.php` refuses to run if the connection resolves to `acumen_lms`, and reports how to fix it. `RefreshDatabase` runs `migrate:fresh`, so without that guard a stale `bootstrap/cache/config.php` silently destroys application data — this has happened.
 

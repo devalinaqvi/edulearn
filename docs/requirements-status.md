@@ -2,13 +2,13 @@
 
 Baseline re-verified against code, schema and a full MySQL test run on **24 September 2026**. Status describes source implementation and automated-test evidence, not production acceptance. Runtime evidence is in `validation.md`; video specifics are in `video-operations.md`.
 
-Suite at the time of writing: **89 tests, 951 assertions, all passing** on MySQL (`acumen_university_test`). The pre-existing baseline was 62 tests / 687 assertions plus one failing generated placeholder.
+Suite at the time of writing: **257 tests, all passing** on MySQL (`acumen_university_test`). This supersedes the earlier 89-test and 110-test baselines; see `docs/architecture.md` for the work that followed.
 
 ## Architecture and compatibility
 
 The repository is a Laravel 13.31.0 modular application running PHP 8.3.31, using MySQL for persistent application data, Eloquent, Blade, private local storage, database sessions/cache/queues, and PHPUnit 12.5.34. The UI uses existing local CSS and small progressive-enhancement JavaScript. There is no npm package manifest or frontend framework build.
 
-Laravel 13 requires PHP 8.3 or newer; the SRS's PHP 8.2 minimum is incompatible. Keep the installed Laravel/PHP major versions instead of introducing an unrelated upgrade. See [Laravel 13 support policy](https://laravel.com/docs/13.x/releases), [deployment requirements](https://laravel.com/docs/13.x/deployment), and [PHP support windows](https://www.php.net/supported-versions.php). The running MySQL version must be verified during environment validation. SQLite remains only a portable test backend, never delivered application persistence.
+Laravel 13 requires PHP 8.3 or newer; the SRS's PHP 8.2 minimum is incompatible. Keep the installed Laravel/PHP major versions instead of introducing an unrelated upgrade. See [Laravel 13 support policy](https://laravel.com/docs/13.x/releases), [deployment requirements](https://laravel.com/docs/13.x/deployment), and [PHP support windows](https://www.php.net/supported-versions.php). The running MySQL version must be verified during environment validation. SQLite is no longer a supported test backend: the harness requires an isolated MySQL database whose name ends in `_test`.
 
 The specification both permits retaining the current frontend and requests Bootstrap. Decision: retain the established stack and visual components for milestone one. No Bootstrap, jQuery, Alpine or npm dependency is claimed to be installed. A future build-tool change must have a concrete reason. EduLearn replaces the Acumen display name, while retaining existing account identifiers and the restrained green visual identity.
 
@@ -29,7 +29,7 @@ The specification both permits retaining the current frontend and requests Boots
 | Unique course code | Implemented | Unique database constraint, normalized form validation, preserved-record backfill, code search and course display |
 | Administrator-managed course enrollment | Implemented | Audited access screen and unique online enrollment constraint |
 | PDF/DOCX/PPTX materials, 10 MB, complete metadata | Implemented and tested | 10 MB private uploads, Office content validation, uploader/size/time metadata, progress feedback. Replacement with optimistic version checks, retained file revisions, staff-only revision downloads, archival that withdraws learner access and blocks new AI generation while preserving existing notes. `MaterialController`, `2026_09_15_070733_add_material_revision_history`, `MaterialLifecycleTest` (4 tests). Historical unknown uploader/size legitimately remain null |
-| Assignment authoring and private submissions | Partial | Existing title/instructions/deadline/marks, text/file submissions and private downloads; draft publication, attachments and new strict deadline policy remain |
+| Assignment authoring and private submissions | Implemented | Title/instructions/deadline/marks, text/file submissions, private downloads, post-publication editing with `max_marks` frozen once work is submitted, and reference image/video attachments. `PublishedCourseEditingTest`, `AssignmentMediaTest`. Assignment draft/publish states remain |
 | Reject late submissions | Implemented | Server rejects at or after the effective UTC deadline; individual approved extensions apply |
 | Submission history and replacement policy | Implemented | Ungraded work may be replaced before deadline; retained text/private file revisions, authorized history downloads, duplicate-content idempotency and form version guard |
 | Rubrics, marks, feedback and grade corrections | Implemented | Bounded decimal marks, criterion totals, immutable rubric after first submission, grade history and stale-form protection |
@@ -39,13 +39,13 @@ The specification both permits retaining the current frontend and requests Boots
 | Short-answer quizzes | Implemented | Authoring, manual bounded decimal grading, review audit and explicit publication. `ShortAnswerQuizTest`, `QuizWorkflow::review` |
 | Visible countdown/configurable attempt limit | Partial | Visible countdown and automatic server finalization request added; server remains authoritative. Configurable attempt limits remain |
 | Expired quiz finalization | Partial | Idempotent scheduled command exists; host scheduler supervision must be configured and verified |
-| Course announcements | Partial | Scoped course announcements exist; complete author/publication metadata and unread tracking remain |
-| Platform announcements and assignment/submission notifications | Missing | Milestone 3 |
+| Course announcements | Implemented | Scoped course announcements with author and publication metadata, unread tracking, and draft/scheduled/published states decided at read time. `AnnouncementAudienceTest`, `ScheduledAnnouncementTest` |
+| Platform announcements | Implemented | Administrator-published platform notices with scheduling. Assignment/submission **notifications** remain missing |
 | Private AI study notes | Partial | Queue, private library, limits, retries, source hash/version checks, mock/direct OpenAI provider paths exist |
-| Document extraction | Partial | Lesson/TXT/Markdown only; no PDF/DOCX/PPTX extraction or OCR claims |
+| Document extraction | Implemented | Lesson text, TXT, Markdown, DOCX, PPTX and text-based PDF. Scanned PDFs are reported as needing OCR, which is not implemented. `DocumentExtractionTest` |
 | Note editing/regeneration and provider/model metadata | Partial | Rename/delete exists; content editing, explicit regeneration and complete model metadata remain |
-| Instructor AI question generation/review | Missing | Separate milestone after study notes; never publish generated drafts automatically |
-| OpenRouter/free models/AI administration | Missing | Live catalog, encrypted credentials, approved spending controls and connection checks required; no paid fallback permitted |
+| Instructor AI question generation/review | Implemented | `QuizQuestionProvider` drafts questions from a course source into a draft quiz; malformed, duplicate and unanswerable items are discarded, a published quiz refuses them, and nothing is published without review. `AiQuizGenerationTest` |
+| OpenRouter/free models/AI administration | Implemented | Live per-provider catalogues, encrypted credentials, zero-price enforcement with no paid fallback, and connection checks. `AiAdministrationTest` |
 | Learner dashboard | Partial | Enrolled courses/progress, deadlines, quiz windows, materials, course announcements and notes; published-result feed/general announcements await later milestones |
 | Instructor dashboard | Partial | Assigned courses, enrollments, pending reviews and assessment windows; richer submission history awaits milestone 3 |
 | Admin dashboard/activity | Partial | Database-backed course/enrollment/account counts, management links and recent account activity; fuller reports await milestone 7 |
@@ -53,6 +53,18 @@ The specification both permits retaining the current frontend and requests Boots
 | Performance/availability targets | Missing | No representative 100/200-user load run or availability observation period completed |
 | Campus ERP/attendance/degrees/physical timetables | Out of scope | Application modules removed; retained historical schema fixtures are upgrade-test inputs only |
 | Payments/certificates/video/forums/mobile/advanced analytics | Out of scope | Separate future backlog, not core milestone deliverables |
+
+## Production-readiness round (October 2026)
+
+Added since the milestone baseline above, each verified by automated tests: a fail-loud shared
+write lock; remember-me restored; post-publication editing of lessons, assignments and quizzes
+with integrity rules; an app-wide display timezone with conversion ordered before validation;
+optional quiz availability windows; Trash, restore and dependency-gated permanent deletion; a
+data-only erase command with minimal and complete seeds; one toast notification mechanism;
+optional reason fields where they are not audit evidence; sanitized rich-text lessons; assignment
+reference media; and AI-drafted quiz questions requiring review.
+
+Full detail is in `docs/architecture.md`; diagrams are in `docs/diagrams/`.
 
 ## Assumptions and contradictions
 

@@ -11,5 +11,5 @@
 <section class="panel"><h2>Teaching team</h2><p>Primary instructor: {{ $course->instructor->name }}. <a href="{{ route('courses.edit', $course) }}">Edit course assignment</a></p>@foreach($instructors as $instructor)@if($instructor->id !== $course->instructor_id)<p>{{ $instructor->name }} · {{ $instructor->email }}</p>@endif
 @endforeach</section>
 <section class="panel"><h2>Enrolled learners</h2>@forelse($enrollments as $enrollment)<div class="student-row"><strong>{{ $enrollment->user->name }}</strong><span>{{ $enrollment->user->email }}</span></div>@empty<p>No learners enrolled.</p>@endforelse{{ $enrollments->links() }}</section>
-<section class="panel"><h2>Recent access changes</h2>@forelse($history as $change)<p><strong>{{ $change->name }}</strong> · {{ $change->action }} · {{ $change->created_at }} UTC<br>{{ $change->reason }}</p>@empty<p>No administrative access changes recorded.</p>@endforelse</section>
+<section class="panel"><h2>Recent access changes</h2>@forelse($history as $change)<p><strong>{{ $change->name }}</strong> · {{ $change->action }} · @showtime($change->created_at)<br>{{ $change->reason }}</p>@empty<p>No administrative access changes recorded.</p>@endforelse</section>
 @endsection

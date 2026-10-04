@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\WriteLock;
 use App\Http\Requests\ReplaceMaterialRequest;
 use App\Http\Requests\UploadMaterialRequest;
 use App\Models\Course;
@@ -25,7 +26,7 @@ class MaterialController extends Controller
         abort_unless($path, 500, 'Upload failed.');
         try {
             DB::transaction(function () use ($request, $course, $data, $file, $path) {
-                DB::table('lms_write_locks')->where('id', 1)->lockForUpdate()->first();
+                WriteLock::acquire();
                 Gate::forUser($request->user()->fresh())->authorize('manage', $course->fresh());
                 $course->materials()->create([
                     'uploader_id' => $request->user()->id,
@@ -61,7 +62,7 @@ class MaterialController extends Controller
         abort_unless($path, 500, 'Upload failed.');
         try {
             DB::transaction(function () use ($request, $material, $data, $file, $path) {
-                DB::table('lms_write_locks')->where('id', 1)->lockForUpdate()->first();
+                WriteLock::acquire();
                 $current = Material::whereKey($material->id)->lockForUpdate()->firstOrFail();
                 Gate::forUser($request->user()->fresh())->authorize('manage', $current->course);
                 abort_if($current->status === 'archived', 409, 'Restore this material before replacing its file.');
@@ -79,7 +80,7 @@ class MaterialController extends Controller
                     'uploaded_at' => $current->uploaded_at,
                     'replaced_by' => $request->user()->id,
                     'replaced_at' => now(),
-                    'reason' => $data['reason'],
+                    'reason' => blank($data['reason'] ?? null) ? null : $data['reason'],
                 ]);
 
                 $current->update([
@@ -115,11 +116,12 @@ class MaterialController extends Controller
         $data = $request->validate([
             'version' => 'required|integer|min:0',
             'action' => 'required|in:archive,restore',
-            'reason' => 'required_if:action,archive|nullable|string|max:1000',
+            // Optional: archiving is an ordinary editorial act, not a change to anyone's record.
+            'reason' => 'nullable|string|max:1000',
         ]);
 
         DB::transaction(function () use ($request, $material, $data) {
-            DB::table('lms_write_locks')->where('id', 1)->lockForUpdate()->first();
+            WriteLock::acquire();
             $current = Material::whereKey($material->id)->lockForUpdate()->firstOrFail();
             Gate::forUser($request->user()->fresh())->authorize('manage', $current->course);
             abort_if((int) $data['version'] !== $current->version, 409, 'This material changed. Reload before continuing.');

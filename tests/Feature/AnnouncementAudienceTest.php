@@ -38,4 +38,37 @@ class AnnouncementAudienceTest extends TestCase
         $this->actingAs($student)->get(route('announcements.index'))->assertOk()->assertDontSee('Private course message');
         $this->post(route('announcements.read', $announcement))->assertForbidden();
     }
+
+    public function test_a_future_publication_time_hides_an_announcement_until_it_arrives(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $student = User::factory()->create(['role' => 'student']);
+
+        // The audience scope used to test only for the presence of published_at, so a scheduled
+        // announcement became visible the moment it was stored.
+        $scheduled = Announcement::create(['author_id' => $admin->id, 'title' => 'Scheduled notice', 'body' => 'Not due yet', 'published_at' => now()->addDay()]);
+        Announcement::create(['author_id' => $admin->id, 'title' => 'Live notice', 'body' => 'Already due', 'published_at' => now()->subMinute()]);
+
+        $this->actingAs($student)->get(route('announcements.index'))->assertOk()
+            ->assertSee('Live notice')->assertDontSee('Scheduled notice');
+
+        $this->assertFalse(Announcement::visibleTo($student)->whereKey($scheduled->id)->exists());
+
+        $this->travelTo(now()->addDays(2));
+
+        $this->get(route('announcements.index'))->assertOk()->assertSee('Scheduled notice');
+        $this->assertTrue(Announcement::visibleTo($student)->whereKey($scheduled->id)->exists());
+    }
+
+    public function test_an_unpublished_draft_is_never_an_audience_member(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $student = User::factory()->create(['role' => 'student']);
+
+        $draft = Announcement::create(['author_id' => $admin->id, 'title' => 'Draft notice', 'body' => 'Unpublished']);
+        $draft->forceFill(['published_at' => null])->save();
+
+        $this->actingAs($student)->get(route('announcements.index'))->assertOk()->assertDontSee('Draft notice');
+        $this->assertFalse(Announcement::visibleTo($student)->whereKey($draft->id)->exists());
+    }
 }

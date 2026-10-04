@@ -18,7 +18,7 @@
 <a href="{{ route('notes.show',$note) }}">{{ $note->title }}</a>
 </h3>
 <p class="muted">Source: {{ $note->source_title }}</p>
-<small>{{ $note->created_at->format('M j, Y') }} · {{ $note->provider==='mock' ? 'Development mock' : 'AI-generated' }}</small>
+<small>@showdate($note->created_at) · {{ $note->provider==='mock' ? 'Development mock' : 'AI-generated' }}</small>
 <div class="card-action">
 <a href="{{ route('notes.show',$note) }}">Open note →</a>
 </div>

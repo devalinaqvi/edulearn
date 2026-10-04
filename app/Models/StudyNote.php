@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class StudyNote extends Model
 {
@@ -13,22 +14,22 @@ class StudyNote extends Model
         return ['edited_at' => 'datetime', 'ai_configuration_version' => 'integer', 'generated_at' => 'datetime'];
     }
 
-    public function course()
+    public function course(): BelongsTo
     {
         return $this->belongsTo(Course::class);
     }
 
-    public function lesson()
+    public function lesson(): BelongsTo
     {
         return $this->belongsTo(Lesson::class);
     }
 
-    public function material()
+    public function material(): BelongsTo
     {
         return $this->belongsTo(Material::class);
     }
 
-    public function videoLecture()
+    public function videoLecture(): BelongsTo
     {
         return $this->belongsTo(VideoLecture::class);
     }

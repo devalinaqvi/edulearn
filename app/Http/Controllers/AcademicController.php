@@ -3,24 +3,41 @@
 namespace App\Http\Controllers;
 
 use App\Actions\AssessmentWorkflow;
+use App\Actions\AssignmentMediaLibrary;
+use App\Actions\WriteLock;
 use App\Models\Assignment;
+use App\Models\AssignmentMedium;
 use App\Models\Course;
 use App\Models\Submission;
+use App\Services\DisplayTime;
+use App\Services\PrivateMediaStream;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\Response;
 
 class AcademicController extends Controller
 {
     public function assignment(Request $r, Course $course)
     {
         Gate::authorize('manage', $course);
-        $course->assignments()->create($r->validate(['title' => 'required|string|max:160', 'instructions' => 'required|string|max:20000', 'due_at' => 'required|date', 'max_marks' => 'required|integer|min:1|max:100000']));
+        $data = $r->validate(['title' => 'required|string|max:160', 'instructions' => 'required|string|max:20000', 'due_at' => 'required|date', 'max_marks' => 'required|integer|min:1|max:100000']);
+        $course->assignments()->create(DisplayTime::normalize($data, 'due_at'));
 
         return back()->with('status', 'Assignment created.');
+    }
+
+    public function update(Request $r, Assignment $assignment): RedirectResponse
+    {
+        Gate::authorize('manage', $assignment->course);
+        $result = app(AssessmentWorkflow::class)->updateAssignment($r->user(), $assignment, $r->all());
+
+        return back()->with('status', $result['rubric_cleared']
+            ? 'Assignment updated. The rubric no longer totalled the new maximum and was cleared, so add it again before grading.'
+            : 'Assignment updated.');
     }
 
     public function show(Request $r, Assignment $assignment)
@@ -42,8 +59,55 @@ class AcademicController extends Controller
             $history = collect();
         }
         $revisions = DB::table('submission_revisions')->whereIn('submission_id', $submissions->pluck('id'))->orderByDesc('version')->get()->groupBy('submission_id');
+        $media = AssignmentMedium::where('assignment_id', $assignment->id)->orderBy('position')->orderBy('id')->get();
 
-        return view('assignments.show', compact('revisions', 'assignment', 'manage', 'submissions', 'deadline', 'history', 'extensions', 'students'));
+        return view('assignments.show', compact('revisions', 'assignment', 'manage', 'submissions', 'deadline', 'history', 'extensions', 'students', 'media'));
+    }
+
+    public function attachMedia(Request $request, Assignment $assignment, AssignmentMediaLibrary $library): RedirectResponse
+    {
+        Gate::authorize('manage', $assignment->course);
+        $library->attach($request->user(), $assignment, $request->all(), $request->file('file'));
+
+        return back()->with('status', 'Reference file added to the assignment brief.');
+    }
+
+    public function detachMedia(Request $request, AssignmentMedium $medium, AssignmentMediaLibrary $library): RedirectResponse
+    {
+        Gate::authorize('manage', $medium->assignment->course);
+        $assignment = $medium->assignment;
+        $library->detach($request->user(), $medium);
+
+        return redirect()->route('assignments.show', $assignment)->with('status', 'Reference file removed.');
+    }
+
+    /**
+     * Serve a reference file to anyone who may read the brief it belongs to.
+     *
+     * Video goes through the Range-capable stream so a clip can be scrubbed without the whole
+     * file being buffered; an image is small enough to return whole.
+     */
+    public function media(Request $request, AssignmentMedium $medium, PrivateMediaStream $stream): Response
+    {
+        Gate::authorize('view', $medium->assignment->course);
+        abort_unless(Storage::disk('local')->exists($medium->path), 404);
+
+        if ($medium->isVideo()) {
+            return $stream->respond(
+                Storage::disk('local')->path($medium->path),
+                $medium->mime_type,
+                $request->header('Range'),
+                $request->isMethod('HEAD'),
+                $medium->path,
+            );
+        }
+
+        return response(Storage::disk('local')->get($medium->path), 200, [
+            'Content-Type' => $medium->mime_type,
+            'X-Content-Type-Options' => 'nosniff',
+            'Content-Disposition' => 'inline',
+            'Cache-Control' => 'private, no-store, max-age=0',
+        ]);
     }
 
     public function submit(Request $r, Assignment $assignment)
@@ -55,7 +119,7 @@ class AcademicController extends Controller
         $hash = hash('sha256', json_encode([$data['body'] ?? null, $r->file('file')?->getClientOriginalName(), $r->hasFile('file') ? hash_file('sha256', $r->file('file')->getRealPath()) : null]));
         try {
             DB::transaction(function () use ($r, $assignment, $data, $path, $hash, &$duplicate) {
-                DB::table('lms_write_locks')->where('id', 1)->lockForUpdate()->first();
+                WriteLock::acquire();
                 $assignment = Assignment::whereKey($assignment->id)->lockForUpdate()->firstOrFail();
                 Gate::forUser($r->user()->fresh())->authorize('participate', $assignment->course);
                 if (now()->greaterThanOrEqualTo(app(AssessmentWorkflow::class)->deadline($assignment, $r->user()->id))) {

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\WriteLock;
 use App\Http\Requests\StoreAccountRequest;
 use App\Http\Requests\UpdateAccountRequest;
 use App\Models\Course;
@@ -25,7 +26,7 @@ class AdminController extends Controller
     {
         abort_unless($r->user()->role === 'admin', 403);
         DB::transaction(function () use ($r, $user) {
-            DB::table('lms_write_locks')->where('id', 1)->lockForUpdate()->first();
+            WriteLock::acquire();
             abort_unless($r->user()->fresh()->is_active && $r->user()->fresh()->role === 'admin', 403);
             $user->refresh();
             $data = $r->validated();
@@ -53,7 +54,7 @@ class AdminController extends Controller
     public function createUser(StoreAccountRequest $request): RedirectResponse
     {
         DB::transaction(function () use ($request) {
-            DB::table('lms_write_locks')->where('id', 1)->lockForUpdate()->first();
+            WriteLock::acquire();
             abort_unless($request->user()->fresh()->is_active && $request->user()->fresh()->role === 'admin', 403);
             $data = $request->validated();
             $user = User::create(collect($data)->only(['name', 'email', 'password'])->all());
@@ -77,7 +78,7 @@ class AdminController extends Controller
     public function changeAccess(Request $request, Course $course): RedirectResponse
     {
         DB::transaction(function () use ($request, $course) {
-            DB::table('lms_write_locks')->where('id', 1)->lockForUpdate()->first();
+            WriteLock::acquire();
             abort_unless($request->user()->fresh()->is_active && $request->user()->fresh()->role === 'admin', 403);
             $course = $course->fresh();
             $data = $request->validate(['email' => 'required|email|exists:users,email', 'action' => 'required|in:enroll,remove,teach,unteach', 'reason' => 'required|string|max:1000']);

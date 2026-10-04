@@ -5,6 +5,7 @@ namespace App\Actions;
 use App\Models\Assignment;
 use App\Models\Submission;
 use App\Models\User;
+use App\Services\DisplayTime;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -20,11 +21,76 @@ class AssessmentWorkflow
         return $extension ? Carbon::parse($extension)->max($assignment->due_at) : $assignment->due_at;
     }
 
+    /**
+     * Edit an assignment after it has been created, including inside a published course.
+     *
+     * Course publication is a visibility state and never withdraws authoring rights. What is
+     * constrained here is only what would reinterpret work students have already done:
+     *
+     *  - title, instructions and the deadline stay editable throughout. Moving the deadline does
+     *    not restate existing submissions: their recorded lateness is historical fact.
+     *  - max_marks is frozen once anything has been submitted, because every recorded grade was
+     *    awarded against it and rubric criteria are validated to total it. Changing it would
+     *    silently rescale results that have already been published to learners.
+     *  - before any submission exists a rubric is still draft content. If the new maximum no
+     *    longer matches its criterion total the rubric is cleared rather than left inconsistent,
+     *    and the caller is told so it can be re-entered.
+     *
+     * @param  array<string, mixed>  $input
+     * @return array{rubric_cleared: bool}
+     */
+    public function updateAssignment(User $actor, Assignment $assignment, array $input): array
+    {
+        return DB::transaction(function () use ($actor, $assignment, $input) {
+            WriteLock::acquire();
+            $current = Assignment::whereKey($assignment->id)->lockForUpdate()->firstOrFail();
+            Gate::forUser($actor->fresh())->authorize('manage', $current->course);
+
+            $input = DisplayTime::normalize($input, 'due_at');
+            $data = Validator::make($input, [
+                'version' => 'required|integer|min:0',
+                'title' => 'required|string|max:160',
+                'instructions' => 'required|string|max:20000',
+                'due_at' => 'required|date',
+                'max_marks' => 'required|integer|min:1|max:100000',
+            ])->validate();
+
+            abort_if((int) $data['version'] !== $current->version, 409, 'This assignment changed. Reload before saving.');
+
+            $maximum = (int) $data['max_marks'];
+            if ($maximum !== $current->max_marks && $current->hasRecordedWork()) {
+                throw ValidationException::withMessages([
+                    'max_marks' => 'The total marks cannot be changed because learners have already submitted work for this assignment. Existing grades were recorded against the current maximum.',
+                ]);
+            }
+
+            $rubricCleared = false;
+            $rubric = $current->rubric;
+            if ($rubric && $maximum !== (int) array_sum(array_column($rubric, 'max_marks'))) {
+                // Unreachable once work exists: the guard above already froze the maximum.
+                $rubric = null;
+                $rubricCleared = true;
+            }
+
+            $current->update([
+                'title' => $data['title'],
+                'instructions' => $data['instructions'],
+                'due_at' => $data['due_at'],
+                'max_marks' => $maximum,
+                'rubric' => $rubric,
+                'rubric_version' => $rubricCleared ? $current->rubric_version + 1 : $current->rubric_version,
+                'version' => $current->version + 1,
+            ]);
+
+            return ['rubric_cleared' => $rubricCleared];
+        });
+    }
+
     /** @param array<string, mixed> $input */
     public function rubric(User $actor, Assignment $assignment, array $input): void
     {
         DB::transaction(function () use ($actor, $assignment, $input) {
-            DB::table('lms_write_locks')->where('id', 1)->lockForUpdate()->first();
+            WriteLock::acquire();
             $assignment = Assignment::whereKey($assignment->id)->lockForUpdate()->firstOrFail();
             Gate::forUser($actor->fresh())->authorize('manage', $assignment->course);
             if (isset($input['criteria']) && is_array($input['criteria'])) {
@@ -43,9 +109,10 @@ class AssessmentWorkflow
     public function extend(User $actor, Assignment $assignment, array $input): void
     {
         DB::transaction(function () use ($actor, $assignment, $input) {
-            DB::table('lms_write_locks')->where('id', 1)->lockForUpdate()->first();
+            WriteLock::acquire();
             $assignment = Assignment::whereKey($assignment->id)->lockForUpdate()->firstOrFail();
             Gate::forUser($actor->fresh())->authorize('manage', $assignment->course);
+            $input = DisplayTime::normalize($input, 'due_at');
             $data = Validator::make($input, ['user_id' => 'required|integer|exists:users,id', 'due_at' => 'required|date', 'reason' => 'required|string|max:1000'])->validate();
             $student = User::findOrFail($data['user_id']);
             $eligible = $student->role === 'student' && $assignment->course->enrollments()->where('user_id', $student->id)->exists();
@@ -53,7 +120,6 @@ class AssessmentWorkflow
             if (! Carbon::parse($data['due_at'])->gt($this->deadline($assignment, $student->id))) {
                 throw ValidationException::withMessages(['due_at' => 'An extension must be later than the current deadline.']);
             }
-            $data['due_at'] = Carbon::parse($data['due_at'])->utc()->format('Y-m-d H:i:s');
             DB::table('assignment_extensions')->insert($data + ['assignment_id' => $assignment->id, 'actor_id' => $actor->id, 'created_at' => now()]);
             Submission::where('assignment_id', $assignment->id)->where('user_id', $student->id)->where('submitted_at', '<=', $data['due_at'])->update(['is_late' => false]);
         });
@@ -63,7 +129,7 @@ class AssessmentWorkflow
     public function grade(User $actor, Submission $submission, array $input): void
     {
         DB::transaction(function () use ($actor, $submission, $input) {
-            DB::table('lms_write_locks')->where('id', 1)->lockForUpdate()->first();
+            WriteLock::acquire();
             $assignment = Assignment::whereKey($submission->assignment_id)->lockForUpdate()->firstOrFail();
             Gate::forUser($actor->fresh())->authorize('manage', $assignment->course);
             $submission->refresh();
@@ -90,7 +156,7 @@ class AssessmentWorkflow
     public function publishResult(User $actor, Submission $submission, array $input): void
     {
         DB::transaction(function () use ($actor, $submission, $input) {
-            DB::table('lms_write_locks')->where('id', 1)->lockForUpdate()->first();
+            WriteLock::acquire();
             $submission->refresh();
             Gate::forUser($actor->fresh())->authorize('manage', $submission->assignment->course);
             $data = Validator::make($input, ['version' => 'required|integer|min:0', 'confirm' => 'accepted', 'reason' => 'required|string|max:1000'])->validate();

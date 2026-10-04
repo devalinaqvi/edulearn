@@ -25,7 +25,7 @@ class User extends Authenticatable
         return $this->hasMany(LessonCompletion::class);
     }
 
-    public function enrollments()
+    public function enrollments(): HasMany
     {
         return $this->hasMany(Enrollment::class);
     }

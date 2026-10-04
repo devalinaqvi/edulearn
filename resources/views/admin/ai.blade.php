@@ -37,7 +37,7 @@ Pull a catalogue before selecting a model — providers withdraw models regularl
 <label><input type="checkbox" name="remove_key" value="1"> Remove stored credential</label>
 <input type="hidden" name="require_zero_retention" value="0"><label><input type="checkbox" name="require_zero_retention" value="1" @checked(old('require_zero_retention', $safe['require_zero_retention'] ?? true))> Require zero data retention from the provider</label>
 <p class="muted"><strong>Leave this on unless you accept the consequence.</strong> With it on, OpenRouter will only route to endpoints that retain nothing. Free models may have no endpoint matching this restriction; availability changes. A model appearing in the catalogue does not guarantee that it can serve a request with your privacy settings. Turning it off lets free models work, but the provider may retain submitted lesson and material text under its own policy. Data collection for training is refused either way, and no paid fallback is ever attempted.</p>
-<label>Requests per user per day (UTC)<input type="number" name="daily_limit" min="1" max="100" value="{{ $safe['daily_limit'] }}" required></label>
+<label>Requests per user per day (@tz)<input type="number" name="daily_limit" min="1" max="100" value="{{ $safe['daily_limit'] }}" required></label>
 <label>Maximum input characters<input type="number" name="max_input_chars" min="1000" max="40000" value="{{ $safe['max_input_chars'] }}" required></label>
 <label>Maximum output tokens<input type="number" name="max_output_tokens" min="256" max="4000" value="{{ $safe['max_output_tokens'] }}" required></label>
 <label><input type="checkbox" name="allow_paid" value="1" @checked(old('allow_paid'))> I explicitly approve paid OpenAI usage if OpenAI is enabled.</label>
@@ -49,5 +49,5 @@ Pull a catalogue before selecting a model — providers withdraw models regularl
 </div>
 <form class="panel" method="post" action="{{ route('admin.ai.test') }}">@csrf<button class="button secondary">Test saved credentials</button><p class="muted">Checks authentication without sending course content or requesting inference.</p></form>
 
-<section class="panel"><h2>Recent AI activity</h2>@forelse($usage as $event)<p>{{ $event->provider }} · {{ $event->model }} · {{ $event->status }} · {{ $event->input_chars }} input characters · {{ $event->created_at }} UTC @if($event->detail ?? null)<br><small class="muted">{{ $event->detail }}</small>@endif</p>@empty<p>No recorded requests yet.</p>@endforelse{{ $usage->links() }}</section>
+<section class="panel"><h2>Recent AI activity</h2>@forelse($usage as $event)<p>{{ $event->provider }} · {{ $event->model }} · {{ $event->status }} · {{ $event->input_chars }} input characters · @showtime($event->created_at) @if($event->detail ?? null)<br><small class="muted">{{ $event->detail }}</small>@endif</p>@empty<p>No recorded requests yet.</p>@endforelse{{ $usage->links() }}</section>
 @endsection

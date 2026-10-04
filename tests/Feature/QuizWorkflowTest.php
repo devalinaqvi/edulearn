@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Course;
 use App\Models\Enrollment;
 use App\Models\User;
+use App\Services\DisplayTime;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -19,7 +20,7 @@ class QuizWorkflowTest extends TestCase
         $student = User::factory()->create(['role' => 'student']);
         $course = Course::create(['instructor_id' => $teacher->id, 'title' => 'Quiz course', 'description' => 'Test', 'status' => 'published']);
         Enrollment::create(['course_id' => $course->id, 'user_id' => $student->id]);
-        $this->actingAs($teacher)->post(route('quizzes.store', $course), ['title' => 'Knowledge check', 'instructions' => 'Choose one answer', 'opens_at' => now()->subMinute()->format('Y-m-d H:i:s'), 'closes_at' => now()->addHour()->format('Y-m-d H:i:s'), 'duration_minutes' => 10])->assertRedirect();
+        $this->actingAs($teacher)->post(route('quizzes.store', $course), ['title' => 'Knowledge check', 'instructions' => 'Choose one answer', 'opens_at' => DisplayTime::forInput(now()->subMinute()), 'closes_at' => DisplayTime::forInput(now()->addHour()), 'duration_minutes' => 10])->assertRedirect();
         $quiz = DB::table('quizzes')->value('id');
         $this->post(route('quizzes.author', $quiz), ['version' => 0, 'action' => 'question', 'prompt' => 'Secret question prompt', 'options' => ['Option A', 'Option B', 'Option C', 'Option D'], 'correct' => 2, 'points' => 5])->assertRedirect();
         if ($publish) {
