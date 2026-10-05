@@ -211,6 +211,9 @@ class CourseController extends Controller
 
     public function trash(Request $request, ContentLifecycle $lifecycle): View
     {
+        // Learners have no archived content and no business reading its history.
+        abort_if($request->user()->role === 'student', 403);
+
         $courses = Course::with('instructor')
             ->when($request->user()->role === 'instructor', fn ($q) => $q->where(fn ($assigned) => $assigned->where('instructor_id', $request->user()->id)->orWhereHas('coInstructors', fn ($i) => $i->where('users.id', $request->user()->id))))
             ->when($request->user()->role === 'student', fn ($q) => $q->whereRaw('1 = 0'))
@@ -225,8 +228,9 @@ class CourseController extends Controller
 
         $reports = $lessons->mapWithKeys(fn ($lesson) => [$lesson->id => $lifecycle->report('lessons', $lesson->id)]);
         $courseReports = $courses->mapWithKeys(fn ($course) => [$course->id => $lifecycle->report('courses', $course->id)]);
+        $activity = $lifecycle->recentActivity($request->user());
 
-        return view('trash', compact('courses', 'lessons', 'reports', 'courseReports'));
+        return view('trash', compact('courses', 'lessons', 'reports', 'courseReports', 'activity'));
     }
 
     public function complete(Request $r, Lesson $lesson)

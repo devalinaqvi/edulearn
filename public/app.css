@@ -1405,3 +1405,9 @@ legend { padding:0 8px; font-size:16px; font-weight:600; overflow-wrap:anywhere;
 .sidebar nav a:hover .nav-icon { opacity: 1; }
 .logout .nav-icon { width: 1.25em; height: 1.25em; vertical-align: -0.25em; opacity: .75; }
 .logout:hover .nav-icon { opacity: 1; }
+
+/* Removal history entries read as a log, so they are separated rather than boxed individually. */
+.history-entry { padding: .7rem 0; border-top: 1px solid var(--line, #d9ded7); }
+.history-entry:first-of-type { border-top: 0; padding-top: 0; }
+.history-entry p { margin: 0 0 .25rem; }
+.history-entry p:last-child { margin-bottom: 0; }

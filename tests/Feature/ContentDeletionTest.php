@@ -6,6 +6,7 @@ use App\Models\Course;
 use App\Models\Lesson;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /**
@@ -162,8 +163,115 @@ class ContentDeletionTest extends TestCase
         // Another instructor's trash must not contain it.
         $this->actingAs($outsider)->get(route('trash'))->assertOk()->assertDontSee('Lesson one');
 
-        // Learners have no trash at all.
-        $this->actingAs($student)->get(route('trash'))->assertOk()->assertDontSee('Lesson one');
+        // Learners have no trash at all, and no view of its history.
+        $this->actingAs($student)->get(route('trash'))->assertForbidden();
+    }
+
+    public function test_archiving_and_restoring_are_recorded_with_the_actor_and_reason(): void
+    {
+        [$teacher, , , $lesson] = $this->scenario();
+
+        $this->actingAs($teacher)->post(route('lessons.archive', $lesson), [
+            'version' => $lesson->version, 'action' => 'archive', 'reason' => 'Superseded by the revised unit.',
+        ])->assertRedirect();
+        $this->post(route('lessons.archive', $lesson), ['version' => $lesson->fresh()->version, 'action' => 'restore'])->assertRedirect();
+
+        $entries = DB::table('content_lifecycle_changes')->orderBy('id')->get();
+        $this->assertCount(2, $entries);
+        $this->assertSame('archived', $entries[0]->action);
+        $this->assertSame($teacher->id, (int) $entries[0]->actor_id);
+        $this->assertSame('Superseded by the revised unit.', $entries[0]->reason);
+        $this->assertSame('Lesson one', $entries[0]->subject_title);
+        $this->assertSame('restored', $entries[1]->action);
+        $this->assertNull($entries[1]->reason, 'An omitted reason is stored as nothing, not an empty string.');
+    }
+
+    public function test_the_record_of_a_permanent_deletion_outlives_the_record_it_describes(): void
+    {
+        [$teacher, , , $lesson] = $this->scenario();
+        $lessonId = $lesson->id;
+
+        $this->actingAs($teacher)->delete(route('lessons.destroy', $lesson), [
+            'version' => $lesson->version, 'confirm' => '1', 'reason' => 'Duplicated by mistake.',
+        ])->assertRedirect();
+
+        $this->assertDatabaseMissing('lessons', ['id' => $lessonId]);
+
+        // The whole point: the subject is gone and the entry is still legible.
+        $entry = DB::table('content_lifecycle_changes')->where('action', 'deleted')->sole();
+        $this->assertSame('lesson', $entry->subject_type);
+        $this->assertSame($lessonId, (int) $entry->subject_id);
+        $this->assertSame('Lesson one', $entry->subject_title);
+        $this->assertSame('Duplicated by mistake.', $entry->reason);
+    }
+
+    public function test_a_blocked_deletion_records_what_was_preserved(): void
+    {
+        [$teacher, $student, , $lesson] = $this->scenario();
+        $this->actingAs($student)->post(route('lessons.complete', $lesson), ['completed' => '1'])->assertRedirect();
+
+        $this->actingAs($teacher)->delete(route('lessons.destroy', $lesson), ['version' => $lesson->version, 'confirm' => '1'])->assertRedirect();
+
+        $entry = DB::table('content_lifecycle_changes')->where('action', 'deletion_blocked')->sole();
+        $preserved = json_decode($entry->preserved, true);
+        $this->assertNotEmpty($preserved);
+        $this->assertSame('lesson_completions', $preserved[0]['table']);
+        $this->assertSame(1, $preserved[0]['count']);
+    }
+
+    public function test_deleting_a_course_leaves_a_record_that_does_not_itself_block_the_deletion(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $teacher = User::factory()->create(['role' => 'instructor']);
+        $course = Course::create(['code' => 'EL-AUDIT', 'instructor_id' => $teacher->id, 'title' => 'Audited course', 'description' => 'Online', 'status' => 'draft']);
+        $courseId = $course->id;
+
+        // Archive first, so a lifecycle row already references the course when it is deleted.
+        $this->actingAs($admin)->delete(route('courses.destroy', $course), ['confirm' => '1', 'reason' => 'Created in error.'])
+            ->assertRedirect(route('courses.index'));
+
+        $this->assertDatabaseMissing('courses', ['id' => $courseId]);
+
+        $entry = DB::table('content_lifecycle_changes')->where('subject_type', 'course')->sole();
+        $this->assertSame('deleted', $entry->action);
+        $this->assertSame('Audited course', $entry->subject_title);
+        $this->assertSame('Created in error.', $entry->reason);
+        // course_id nulls rather than restricting, or the audit row would have blocked the delete.
+        $this->assertNull($entry->course_id);
+    }
+
+    public function test_a_prior_history_entry_never_prevents_a_course_from_being_deleted(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $teacher = User::factory()->create(['role' => 'instructor']);
+        $course = Course::create(['code' => 'EL-HIST', 'instructor_id' => $teacher->id, 'title' => 'Historied course', 'description' => 'Online', 'status' => 'draft']);
+        $lesson = $course->lessons()->create(['title' => 'Temp', 'body' => 'Body', 'position' => 1])->refresh();
+
+        // Generate history against the course, then clear the real blocker.
+        $this->actingAs($admin)->post(route('lessons.archive', $lesson), ['version' => $lesson->version, 'action' => 'archive'])->assertRedirect();
+        $this->delete(route('lessons.destroy', $lesson), ['version' => $lesson->fresh()->version, 'confirm' => '1'])->assertRedirect();
+        $this->assertGreaterThan(0, DB::table('content_lifecycle_changes')->where('course_id', $course->id)->count());
+
+        $this->delete(route('courses.destroy', $course), ['confirm' => '1'])->assertRedirect(route('courses.index'));
+
+        $this->assertDatabaseMissing('courses', ['id' => $course->id]);
+        $this->assertGreaterThan(0, DB::table('content_lifecycle_changes')->count(), 'History survives its course.');
+    }
+
+    public function test_the_removal_history_is_shown_in_trash_and_scoped_to_the_viewer(): void
+    {
+        [$teacher, , , $lesson] = $this->scenario();
+        $outsider = User::factory()->create(['role' => 'instructor']);
+        $this->actingAs($teacher)->post(route('lessons.archive', $lesson), [
+            'version' => $lesson->version, 'action' => 'archive', 'reason' => 'Retired for this term.',
+        ])->assertRedirect();
+
+        $this->get(route('trash'))->assertOk()
+            ->assertSee('Removal history')
+            ->assertSee('Retired for this term.')
+            ->assertSee($teacher->name);
+
+        $this->actingAs($outsider)->get(route('trash'))->assertOk()->assertDontSee('Retired for this term.');
     }
 
     public function test_trash_hides_permanent_deletion_when_records_depend_on_the_lesson(): void

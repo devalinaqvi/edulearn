@@ -30,6 +30,7 @@
 <form method="post" action="{{ route('lessons.destroy', $lesson) }}" data-confirm="Permanently delete “{{ $lesson->title }}”? This cannot be undone.">@csrf @method('delete')
 <input type="hidden" name="version" value="{{ $lesson->version }}">
 <input type="hidden" name="confirm" value="1">
+<details class="reason-optional"><summary>Add a reason (optional)</summary><label>Reason<input name="reason" maxlength="1000" placeholder="Recorded in the deletion history"></label></details>
 <button class="button danger">Delete permanently</button>
 </form>
 <p class="muted">{{ $report['summary'] }}</p>
@@ -60,6 +61,7 @@
 @else
 <form method="post" action="{{ route('courses.destroy', $course) }}" data-confirm="Permanently delete “{{ $course->title }}”? This cannot be undone.">@csrf @method('delete')
 <input type="hidden" name="confirm" value="1">
+<details class="reason-optional"><summary>Add a reason (optional)</summary><label>Reason<input name="reason" maxlength="1000" placeholder="Recorded in the deletion history"></label></details>
 <button class="button danger">Delete permanently</button>
 </form>
 <p class="muted">{{ $report['summary'] }}</p>
@@ -70,4 +72,23 @@
 <div class="empty panel">No archived courses.</div>
 @endforelse
 @endif
+<div class="section-heading"><h2>Removal history</h2><span class="muted">Most recent {{ $activity->count() }}</span></div>
+<section class="panel">
+<p class="muted">Who archived, restored or permanently deleted course content, and why. Entries are kept after the content itself is gone, so a grade appeal or an audit can still be answered.</p>
+@forelse($activity as $entry)
+<article class="history-entry">
+<p><strong>{{ ucfirst(str_replace('_', ' ', $entry->action)) }}</strong>
+&middot; {{ ucfirst($entry->subject_type) }} &ldquo;{{ $entry->subject_title }}&rdquo;
+@if($entry->course_title && $entry->subject_type !== 'course')&middot; {{ $entry->course_title }}@endif
+<br><small class="muted">{{ $entry->actor_name }} &middot; @showtime($entry->created_at)</small></p>
+@if($entry->reason)<p>{{ $entry->reason }}</p>@endif
+@if($entry->preserved)
+@php($preserved = json_decode($entry->preserved, true) ?? [])
+@if($preserved)<p class="muted">Preserved: @foreach($preserved as $item){{ $item['count'] }} {{ $item['label'] }}@if(!$loop->last), @endif @endforeach.</p>@endif
+@endif
+</article>
+@empty
+<p class="muted">Nothing has been archived or deleted yet.</p>
+@endforelse
+</section>
 @endsection
