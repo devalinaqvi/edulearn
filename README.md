@@ -73,6 +73,27 @@ Two rows are recreated afterwards because the application cannot run without the
 
 An installation holding only the minimal accounts is a supported state — dashboards, the catalog, notes, announcements, profile and administration all render their empty states. The complete seed additionally covers draft, archived and content-free courses, a graded and published submission, a finalized quiz attempt, and live, scheduled and draft announcements.
 
+## Retention, export and erasure
+
+```sh
+php artisan lms:purge-trash --dry-run     # report what the retention sweep would remove
+php artisan lms:purge-trash               # remove archived content nothing depends on
+```
+
+A course can be exported from its own page as a zip of teaching content — lessons, materials,
+assignments, quizzes and announcements. It deliberately contains **no learner data**, so it is a
+backup of a course and never a student record. Take one before deleting anything you may want back.
+
+`lms:purge-trash` runs daily and removes archived content older than `LMS_TRASH_RETENTION_DAYS`
+(90 by default). It never relaxes the deletion rules: anything a learner record depends on is kept
+indefinitely, however long it has been archived.
+
+An administrator can carry out a right-to-erasure request from the administration screen. It
+overwrites the person's identifying details and deletes their private study notes, read receipts
+and viewing positions, while retaining enrolments, submissions, attempts and marks as academic
+evidence. It is irreversible, cannot be used on your own account or the last active administrator,
+and is confirmed by typing the account's email address.
+
 ## Accounts and sessions
 
 Five failed logins within the configured failure window lock the normalized email identifier across IP addresses. The default lock is 15 minutes from the fifth failure, configured by `LMS_LOGIN_LOCKOUT_MINUTES`; successful login clears failures. Separate IP throttling limits all authentication requests. Generic failures avoid exposing whether an account is inactive.

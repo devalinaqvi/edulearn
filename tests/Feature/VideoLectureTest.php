@@ -271,7 +271,7 @@ class VideoLectureTest extends TestCase
         $before = Storage::disk('local')->allFiles();
         $this->actingAs($this->teacher)->post(route('lectures.media', $lecture), [
             'version' => 1, 'reason' => 'Stale form.', 'file' => $this->video(),
-        ])->assertStatus(409);
+        ])->assertSessionHasErrors('conflict');
         $this->assertSame($before, Storage::disk('local')->allFiles());
         $this->assertSame(2, $lecture->fresh()->version);
     }

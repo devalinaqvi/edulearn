@@ -38,9 +38,9 @@ class QuizWorkflowTest extends TestCase
         $this->post(route('quizzes.start', $quiz))->assertNotFound();
         $this->post(route('quizzes.author', $quiz), ['version' => 1, 'action' => 'publish'])->assertForbidden();
         $this->actingAs($teacher)->get(route('quizzes.show', $quiz))->assertOk()->assertSee('Correct answer');
-        $this->post(route('quizzes.author', $quiz), ['version' => 0, 'action' => 'publish'])->assertConflict();
+        $this->post(route('quizzes.author', $quiz), ['version' => 0, 'action' => 'publish'])->assertSessionHasErrors('conflict');
         $this->post(route('quizzes.author', $quiz), ['version' => 1, 'action' => 'publish'])->assertRedirect();
-        $this->post(route('quizzes.author', $quiz), ['version' => 2, 'action' => 'remove', 'index' => 0])->assertConflict();
+        $this->post(route('quizzes.author', $quiz), ['version' => 2, 'action' => 'remove', 'index' => 0])->assertSessionHasErrors('conflict');
         $this->actingAs($student)->get(route('quizzes.show', $quiz))->assertOk()->assertDontSee('Secret question prompt')->assertDontSee('Correct answer');
     }
 
@@ -55,7 +55,7 @@ class QuizWorkflowTest extends TestCase
         $this->assertSame($deadline, DB::table('quiz_attempts')->value('deadline_at'));
         $this->get(route('quizzes.show', $quiz))->assertOk()->assertSee('Secret question prompt')->assertSee('data-quiz-seconds', false)->assertDontSee('Correct answer')->assertDontSee('name="correct"', false);
         $this->post(route('quizzes.answer', $quiz), ['version' => 0, 'action' => 'save', 'answers' => [2]])->assertRedirect();
-        $this->post(route('quizzes.answer', $quiz), ['version' => 0, 'action' => 'submit', 'answers' => [0]])->assertConflict();
+        $this->post(route('quizzes.answer', $quiz), ['version' => 0, 'action' => 'submit', 'answers' => [0]])->assertSessionHasErrors('conflict');
         $this->post(route('quizzes.answer', $quiz), ['version' => 1, 'action' => 'submit', 'answers' => [2], 'score' => 999])->assertRedirect();
         $this->assertDatabaseHas('quiz_attempts', ['quiz_id' => $quiz, 'score' => 5, 'version' => 2]);
         $this->post(route('quizzes.answer', $quiz), ['version' => 1, 'action' => 'submit', 'answers' => [0]])->assertRedirect();

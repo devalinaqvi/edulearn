@@ -20,7 +20,19 @@
 <div class="two-col"><label>Role<select name="role">@foreach(['student' => 'Learner', 'instructor' => 'Instructor', 'admin' => 'Administrator'] as $role => $label)<option value="{{ $role }}" @selected($user->role === $role)>{{ $label }}</option>@endforeach</select></label>
 <label>Account access<select name="is_active"><option value="1" @selected($user->is_active)>Active</option><option value="0" @selected(!$user->is_active)>Inactive</option></select></label></div>
 <label>Reason<textarea name="reason" maxlength="1000" required></textarea></label><p class="muted">Last sign-in: {{ $user->last_login_at ? \App\Services\DisplayTime::format($user->last_login_at) : 'Not recorded' }}</p><button class="button secondary">Save account</button>
-</form></details>
+</form>
+@if($user->isErased())
+<p class="notice">Personal data for this account was erased on @showtime($user->erased_at). Its academic records are retained and remain linked to this entry.</p>
+@elseif($user->id !== auth()->id())
+<details class="danger-zone"><summary>Erase personal data (right to erasure)</summary>
+<p>Overwrites this person's name, email and credentials, and deletes their private study notes, announcement read receipts and video viewing positions.</p>
+<p><strong>Retained:</strong> enrolments, submissions, quiz attempts, marks and the audit trail behind them. These are kept as academic evidence under the exemption for legal obligations and legal claims, and will no longer be linked to a named person.</p>
+<p><strong>This cannot be undone.</strong> No record is kept of what the removed values were.</p>
+<form method="post" action="{{ route('admin.users.erase', $user) }}" data-confirm="Erase personal data for {{ $user->email }}? This cannot be undone.">@csrf
+<label>Type <code>{{ $user->email }}</code> to confirm<input name="confirm_email" autocomplete="off" required></label>
+<button class="button danger">Erase personal data</button></form></details>
+@endif
+</details>
 @endforeach
 {{ $users->links() }}
 <section class="panel"><h2>Recent account activity</h2><div class="table-scroll"><table><caption>Most recent 20 recorded events</caption><thead><tr><th scope="col">Account</th><th scope="col">Action</th><th scope="col">Time (@tz)</th></tr></thead><tbody>@forelse($activity as $event)<tr><td>{{ $event->name }}</td><td>{{ ucfirst(str_replace('_', ' ', $event->event)) }}</td><td>@showtime($event->created_at)</td></tr>@empty<tr><td colspan="3">No recorded activity yet.</td></tr>@endforelse</tbody></table></div></section>

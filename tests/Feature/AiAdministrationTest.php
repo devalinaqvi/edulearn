@@ -46,7 +46,7 @@ class AiAdministrationTest extends TestCase
         $this->assertStringNotContainsString('test-private-key', DB::table('ai_configurations')->value('api_key'));
         $this->assertSame('test-private-key', AiConfiguration::findOrFail(1)->api_key);
         $this->get(route('admin.ai'))->assertOk()->assertDontSee('test-private-key');
-        $this->put(route('admin.ai.update'), $this->payload())->assertConflict();
+        $this->put(route('admin.ai.update'), $this->payload())->assertSessionHasErrors('conflict');
         $this->put(route('admin.ai.update'), array_replace($this->payload(), ['version' => 1, 'provider' => 'openai', 'model' => 'test-model']))->assertSessionHasErrors('allow_paid');
     }
 

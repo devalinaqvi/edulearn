@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\AccountErasure;
 use App\Actions\WriteLock;
 use App\Http\Requests\StoreAccountRequest;
 use App\Http\Requests\UpdateAccountRequest;
@@ -15,6 +16,23 @@ use Illuminate\Support\Str;
 
 class AdminController extends Controller
 {
+    /**
+     * Carry out a right-to-erasure request against one account.
+     *
+     * Irreversible by design: the identifying columns are overwritten in place and there is no
+     * record kept of what they held.
+     */
+    public function erase(Request $request, User $user, AccountErasure $erasure): RedirectResponse
+    {
+        $result = $erasure->erase($request->user(), $user, $request->all());
+
+        return back()->with('status', sprintf(
+            'Personal data erased. Removed %d study notes, %d read receipts and %d viewing records. Retained as academic evidence: %d enrolments, %d submissions and %d quiz attempts.',
+            $result['removed']['study_notes'], $result['removed']['announcement_reads'], $result['removed']['video_progress'],
+            $result['retained']['enrollments'], $result['retained']['submissions'], $result['retained']['quiz_attempts'],
+        ));
+    }
+
     public function index(Request $r)
     {
         abort_unless($r->user()->role === 'admin', 403);

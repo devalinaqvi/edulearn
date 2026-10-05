@@ -38,6 +38,8 @@ What this work added, and why:
 | `Services\QuizQuestionProvider` | AI-drafted questions over the existing provider configuration |
 | `Actions\AssignmentMediaLibrary` | Reference media validated by content, not by filename |
 | `Console\EraseApplicationData` | A data reset that keeps the schema and the migration history |
+| `Services\CourseExport` | A copy of a course's content, so deletion can be taken back |
+| `Actions\AccountErasure` | Article 17 erasure that severs the person without destroying the record |
 
 ## 3. Database relationships
 
@@ -224,15 +226,43 @@ optional reason fields where they are not audit evidence.
 AI: draft quiz generation over the existing provider abstraction, review required before
 publication.
 
-## 18. Remaining technical debt
+## 19. Retention, export and erasure
+
+Three obligations that pull against each other, resolved separately:
+
+**Export.** `GET /courses/{course}/export` produces a zip of a course's teaching content so that
+deletion is a decision that can be taken back. It deliberately carries no learner data: an export
+is a file that gets emailed and forgotten, and is not a lawful basis for moving somebody's
+assessment record onto a laptop.
+
+**Retention.** `lms:purge-trash` permanently removes archived content older than
+`lms.trash_retention_days` (90 by default), scheduled daily. The window never relaxes the
+deletion rules: every candidate still passes through `DependencyAnalyzer`, so anything carrying
+learner history is retained however old it is. Purges are recorded with a null actor, which reads
+as "System", because attributing an automatic cleanup to a person would be a fiction.
+
+**Erasure.** `AccountErasure` honours a GDPR Article 17 request by severing the person from the
+record rather than destroying it. Identifying columns are overwritten in place; study notes,
+announcement read receipts, viewing positions and sessions are deleted; enrolments, submissions,
+attempts, marks and their audit trails are retained under the Article 17(3) exemptions for legal
+obligations and legal claims. The overwrite is one-way: keeping any means of reversing it would
+make this pseudonymisation, which is still personal data and would not discharge the request.
+Administrator only, never on oneself, never on the last active administrator, and confirmed by
+typing the account's email address.
+
+## 20. Remaining technical debt
 
 - **Not verified**, as distinct from not built: real SMTP delivery, live external AI inference,
   WCAG 2.1 AA conformance, and load or availability targets. No browser or assistive technology
   was driven during this work.
+- Erasure covers the application database only. Database backups, queue payloads and server logs
+  may still hold identifying data until they age out, which a retention policy outside this
+  application has to address.
+- The retention purge covers archived lessons. Archived materials, lectures and courses are not
+  swept.
 - `Course::progressFor()` still issues two queries per call and is called once per course card.
 - Several screens run model queries directly in Blade, and the layout reads `settings` on every
   render.
-- A 409 from a stale form still renders a full-page error view, which loses the form input.
 - Assignment reference media cascades from `assignments`; assignments have no delete path today,
   so this is latent rather than active.
 - `league/commonmark` was updated to 2.10.3 during this work to clear two advisories; dependency

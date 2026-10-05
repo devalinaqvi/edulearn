@@ -5,7 +5,7 @@
 <div>
 <span class="eyebrow">ARCHIVED CONTENT</span>
 <h1>Trash</h1>
-<p class="muted">Archived content is hidden from learners but never discarded. Anything that learner records depend on stays here permanently, so that history remains intact.</p>
+<p class="muted">Archived content is hidden from learners but never discarded. Anything that learner records depend on stays here permanently, so that history remains intact. Content that nothing depends on is removed automatically after {{ config('lms.trash_retention_days') }} days; take an export from the course page first if you want to keep a copy.</p>
 </div>
 </div>
 
@@ -80,7 +80,7 @@
 <p><strong>{{ ucfirst(str_replace('_', ' ', $entry->action)) }}</strong>
 &middot; {{ ucfirst($entry->subject_type) }} &ldquo;{{ $entry->subject_title }}&rdquo;
 @if($entry->course_title && $entry->subject_type !== 'course')&middot; {{ $entry->course_title }}@endif
-<br><small class="muted">{{ $entry->actor_name }} &middot; @showtime($entry->created_at)</small></p>
+<br><small class="muted">{{ $entry->actor_name ?? 'System' }} &middot; @showtime($entry->created_at)</small></p>
 @if($entry->reason)<p>{{ $entry->reason }}</p>@endif
 @if($entry->preserved)
 @php($preserved = json_decode($entry->preserved, true) ?? [])

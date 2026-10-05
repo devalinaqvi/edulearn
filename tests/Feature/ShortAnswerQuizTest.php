@@ -42,7 +42,7 @@ class ShortAnswerQuizTest extends TestCase
         $this->post(route('quiz-attempts.grade', $attempt->id), array_replace($review, ['scores' => [1 => 6]]))->assertSessionHasErrors('scores.1');
         $this->post(route('quiz-attempts.grade', $attempt->id), $review)->assertRedirect();
         $this->assertDatabaseHas('quiz_attempts', ['id' => $attempt->id, 'score' => 7.75]);
-        $this->post(route('quiz-attempts.grade', $attempt->id), $review)->assertConflict();
+        $this->post(route('quiz-attempts.grade', $attempt->id), $review)->assertSessionHasErrors('conflict');
         $this->post(route('quiz-attempts.publish', $attempt->id), ['version' => 2, 'reason' => 'Reviewed'])->assertSessionHasErrors('confirm');
         $this->post(route('quiz-attempts.publish', $attempt->id), array_replace($publish, ['version' => 2]))->assertRedirect();
         $this->post(route('quiz-attempts.publish', $attempt->id), array_replace($publish, ['version' => 2]))->assertRedirect();

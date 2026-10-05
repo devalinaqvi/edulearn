@@ -17,7 +17,13 @@ class User extends Authenticatable
 
     protected function casts(): array
     {
-        return ['email_verified_at' => 'datetime', 'password' => 'hashed', 'is_active' => 'boolean', 'auth_version' => 'integer', 'account_version' => 'integer', 'last_login_at' => 'datetime'];
+        return ['email_verified_at' => 'datetime', 'password' => 'hashed', 'is_active' => 'boolean', 'auth_version' => 'integer', 'account_version' => 'integer', 'last_login_at' => 'datetime', 'erased_at' => 'datetime'];
+    }
+
+    /** Whether this account's personal data has been erased under a right-to-erasure request. */
+    public function isErased(): bool
+    {
+        return $this->erased_at !== null;
     }
 
     public function lessonCompletions(): HasMany

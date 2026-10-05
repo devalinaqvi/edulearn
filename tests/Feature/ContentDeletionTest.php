@@ -88,7 +88,7 @@ class ContentDeletionTest extends TestCase
         $this->actingAs($teacher)->post(route('lessons.archive', $lesson), ['version' => 0, 'action' => 'archive'])->assertRedirect();
 
         // Same version replayed: the record has moved on.
-        $this->post(route('lessons.archive', $lesson), ['version' => 0, 'action' => 'archive'])->assertStatus(409);
+        $this->post(route('lessons.archive', $lesson), ['version' => 0, 'action' => 'archive'])->assertSessionHasErrors('conflict');
 
         $this->post(route('lessons.archive', $lesson), ['version' => $lesson->fresh()->version, 'action' => 'archive'])
             ->assertRedirect()->assertSessionHas('status', fn ($m) => str_contains($m, 'already in Trash'));

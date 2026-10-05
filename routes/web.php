@@ -42,6 +42,7 @@ Route::middleware(['auth', 'auth.session', EnsureAccountIsActive::class])->group
     Route::post('/lessons/{lesson}/archive', [CourseController::class, 'archiveLesson'])->name('lessons.archive');
     Route::delete('/lessons/{lesson}', [CourseController::class, 'destroyLesson'])->name('lessons.destroy');
     Route::delete('/courses/{course}', [CourseController::class, 'destroy'])->name('courses.destroy');
+    Route::get('/courses/{course}/export', [CourseController::class, 'export'])->middleware('throttle:6,1')->name('courses.export');
     Route::get('/trash', [CourseController::class, 'trash'])->name('trash');
     Route::post('/courses/{course}/materials', [MaterialController::class, 'store'])->name('materials.store');
     Route::post('/materials/{material}/replace', [MaterialController::class, 'replace'])->name('materials.replace');
@@ -105,5 +106,6 @@ Route::middleware(['auth', 'auth.session', EnsureAccountIsActive::class])->group
     Route::get('/admin/courses/{course}/access', [AdminController::class, 'access'])->name('admin.access');
     Route::post('/admin/courses/{course}/access', [AdminController::class, 'changeAccess'])->name('admin.access.change');
     Route::patch('/admin/users/{user}', [AdminController::class, 'user'])->name('admin.users');
+    Route::post('/admin/users/{user}/erase', [AdminController::class, 'erase'])->name('admin.users.erase');
     Route::put('/admin/settings', [AdminController::class, 'settings'])->name('admin.settings');
 });

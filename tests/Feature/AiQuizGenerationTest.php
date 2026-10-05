@@ -107,7 +107,7 @@ class AiQuizGenerationTest extends TestCase
         $this->post(route('quizzes.author', $this->quiz), ['version' => $version, 'action' => 'publish'])->assertRedirect();
 
         $this->providerReturns($this->questionsJson(1, 'Late'));
-        $this->generate(['count' => 1])->assertStatus(409);
+        $this->generate(['count' => 1])->assertSessionHasErrors('conflict');
 
         $this->assertCount(1, $this->storedQuestions());
     }

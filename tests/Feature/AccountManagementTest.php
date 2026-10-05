@@ -88,7 +88,7 @@ class AccountManagementTest extends TestCase
         $this->actingAs($admin)->patch(route('admin.users', $admin), array_replace($this->accountData($admin), ['is_active' => false]))->assertUnprocessable();
         $payload = $this->accountData($student);
         $this->patch(route('admin.users', $student), array_replace($payload, ['name' => 'Updated learner']))->assertRedirect();
-        $this->patch(route('admin.users', $student), $payload)->assertConflict();
+        $this->patch(route('admin.users', $student), $payload)->assertSessionHasErrors('conflict');
         $this->assertSame('Updated learner', $student->fresh()->name);
     }
 

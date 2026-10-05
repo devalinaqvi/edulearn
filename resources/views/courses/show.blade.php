@@ -6,7 +6,7 @@
 <span class="eyebrow">{{ strtoupper($course->status) }} COURSE</span>
 <h1>{{ $course->title }}</h1><p class="muted">{{ $course->code }}</p>
 <p class="muted">With {{ $course->instructor->name }} · {{ $course->lessons->count() }} lessons</p>
-</div>@if($manage)<a class="button secondary" href="{{ route('courses.edit',$course) }}">Edit course ↗</a>@endif</div>
+</div>@if($manage)<div class="row wrap"><a class="button secondary" href="{{ route('courses.edit',$course) }}">Edit course ↗</a><a class="button secondary" href="{{ route('courses.export',$course) }}">Export a copy ↓</a></div>@endif</div>
 @if(auth()->user()->role === 'admin')<p><a class="button secondary" href="{{ route('admin.access', $course) }}">Manage course access</a></p>@endif
 <p class="course-description">{{ $course->description }}</p>
 @if(!$manage)<section class="panel progress-panel">

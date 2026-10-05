@@ -34,7 +34,7 @@ class SubmissionDeadlineTest extends TestCase
         Storage::disk('local')->assertExists($oldPath);
         $revision = DB::table('submission_revisions')->first();
         $this->get(route('submissions.revisions.download', $revision->id))->assertOk();
-        $this->post(route('assignments.submit', $assignment), ['body' => 'Stale overwrite', 'version' => 0])->assertConflict();
+        $this->post(route('assignments.submit', $assignment), ['body' => 'Stale overwrite', 'version' => 0])->assertSessionHasErrors('conflict');
         $this->get(route('assignments.show', $assignment))->assertSee('First evidence')->assertSee('Revised evidence');
         $this->actingAs($other)->post(route('courses.enroll', $course))->assertRedirect();
         $this->get(route('submissions.revisions.download', $revision->id))->assertForbidden();

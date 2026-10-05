@@ -182,7 +182,7 @@ class LmsTest extends TestCase
         $this->patch('/submissions/'.$s->id.'/grade', ['grade' => 18, 'feedback' => 'Well explained', 'version' => 1, 'reason' => 'Initial grading'])->assertRedirect();
         $this->post(route('submissions.publish', $s), ['version' => 2, 'confirm' => 1, 'reason' => 'Reviewed result'])->assertRedirect();
         $this->actingAs($u)->get('/assignments/'.$a->id)->assertOk()->assertSee('Well explained');
-        $this->post('/assignments/'.$a->id.'/submit', ['body' => 'Replace graded'])->assertStatus(409);
+        $this->post('/assignments/'.$a->id.'/submit', ['body' => 'Replace graded'])->assertSessionHasErrors('conflict');
     }
 
     public function test_unauthorized_assignment_and_announcement_access_is_denied(): void
@@ -266,7 +266,7 @@ class LmsTest extends TestCase
         $this->patch('/notes/'.$n->id, ['title' => 'Stolen'])->assertForbidden();
         $this->delete('/notes/'.$n->id)->assertForbidden();
         $this->get('/notes')->assertDontSee($n->title);
-        $this->actingAs($u)->delete('/notes/'.$n->id)->assertStatus(409);
+        $this->actingAs($u)->delete('/notes/'.$n->id)->assertSessionHasErrors('conflict');
         $this->patch('/notes/'.$n->id, ['title' => 'My revision'])->assertRedirect();
         $this->get('/notes/'.$n->id)->assertSee('My revision');
         $n->update(['status' => 'completed']);
@@ -292,7 +292,7 @@ class LmsTest extends TestCase
         $this->assertSame('pending', $note->fresh()->status);
         $this->assertNull($note->fresh()->content);
         $this->assertSame(2, $user->fresh()->ai_usage_count);
-        $this->patch(route('notes.update', $note), ['title' => 'My notes', 'content' => 'Edit while processing'])->assertConflict();
+        $this->patch(route('notes.update', $note), ['title' => 'My notes', 'content' => 'Edit while processing'])->assertSessionHasErrors('conflict');
     }
 
     public function test_mock_generation_and_duplicate_job_delivery_save_once(): void

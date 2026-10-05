@@ -105,8 +105,8 @@ class ScheduledAnnouncementTest extends TestCase
         $this->actingAs($admin)->post(route('announcements.platform'), ['title' => 'Already out', 'body' => 'Read by people', 'state' => 'now'])->assertRedirect();
         $announcement = Announcement::sole();
 
-        $this->patch(route('announcements.update', $announcement), ['title' => 'Rewritten', 'body' => 'Rewritten', 'state' => 'now'])->assertStatus(409);
-        $this->delete(route('announcements.discard', $announcement))->assertStatus(409);
+        $this->patch(route('announcements.update', $announcement), ['title' => 'Rewritten', 'body' => 'Rewritten', 'state' => 'now'])->assertSessionHasErrors('conflict');
+        $this->delete(route('announcements.discard', $announcement))->assertSessionHasErrors('conflict');
 
         $this->assertSame('Already out', $announcement->fresh()->title);
     }

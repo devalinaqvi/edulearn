@@ -159,12 +159,12 @@ class ContentLifecycle
      *
      * @param  list<array{table: string, label: string, count: int}>  $preserved
      */
-    private function record(User $actor, Lesson|Course $subject, string $action, ?string $reason, array $preserved = []): void
+    private function record(?User $actor, Lesson|Course $subject, string $action, ?string $reason, array $preserved = []): void
     {
         $course = $subject instanceof Course ? $subject : $subject->course;
 
         DB::table('content_lifecycle_changes')->insert([
-            'actor_id' => $actor->id,
+            'actor_id' => $actor?->id,
             'subject_type' => $subject instanceof Course ? 'course' : 'lesson',
             'subject_id' => $subject->id,
             'subject_title' => mb_substr($subject->title, 0, 255),
@@ -185,7 +185,7 @@ class ContentLifecycle
     public function history(string $subjectType, int $subjectId)
     {
         return DB::table('content_lifecycle_changes')
-            ->join('users', 'users.id', '=', 'content_lifecycle_changes.actor_id')
+            ->leftJoin('users', 'users.id', '=', 'content_lifecycle_changes.actor_id')
             ->where('subject_type', $subjectType)->where('subject_id', $subjectId)
             ->orderByDesc('content_lifecycle_changes.id')
             ->select('content_lifecycle_changes.*', 'users.name as actor_name')
@@ -206,7 +206,7 @@ class ContentLifecycle
         }
 
         return DB::table('content_lifecycle_changes')
-            ->join('users', 'users.id', '=', 'content_lifecycle_changes.actor_id')
+            ->leftJoin('users', 'users.id', '=', 'content_lifecycle_changes.actor_id')
             ->when($viewer->role === 'instructor', fn ($query) => $query->whereIn(
                 'content_lifecycle_changes.course_id',
                 Course::query()->where(fn ($assigned) => $assigned->where('instructor_id', $viewer->id)
@@ -215,6 +215,53 @@ class ContentLifecycle
             ->orderByDesc('content_lifecycle_changes.id')->limit($limit)
             ->select('content_lifecycle_changes.*', 'users.name as actor_name')
             ->get();
+    }
+
+    /**
+     * Permanently remove archived lessons that nothing refers to and nobody has touched for a
+     * while, so Trash does not grow without bound.
+     *
+     * The retention window is the only thing this adds to the existing deletion rules; it does
+     * not relax them. Every candidate still goes through the dependency analyser, so anything
+     * carrying learner history is left exactly where it is, however old. A purge that could
+     * quietly destroy assessment evidence after thirty days would be far worse than clutter.
+     *
+     * @return array{deleted: int, retained: int}
+     */
+    public function purgeArchived(int $retentionDays, ?User $actor = null, bool $dryRun = false): array
+    {
+        $cutoff = now()->subDays(max(1, $retentionDays));
+        $deleted = 0;
+        $retained = 0;
+
+        $candidates = Lesson::where('status', 'archived')->whereNotNull('archived_at')
+            ->where('archived_at', '<=', $cutoff)->orderBy('id')->get();
+
+        foreach ($candidates as $candidate) {
+            DB::transaction(function () use ($candidate, $actor, $dryRun, $retentionDays, &$deleted, &$retained) {
+                WriteLock::acquire();
+                $current = Lesson::whereKey($candidate->id)->lockForUpdate()->first();
+                if (! $current || ! $current->isArchived()) {
+                    return; // Restored while the purge was running.
+                }
+
+                if ($this->dependencies->for('lessons', $current->id)['blocked']) {
+                    $retained++;
+
+                    return;
+                }
+
+                $deleted++;
+                if ($dryRun) {
+                    return;
+                }
+
+                $this->record($actor, $current, 'purged', 'Automatically removed after '.$retentionDays.' days in Trash with nothing depending on it.');
+                $current->delete();
+            });
+        }
+
+        return ['deleted' => $deleted, 'retained' => $retained];
     }
 
     /** What the interface should offer for a record, so it never shows an action that would fail. */

@@ -89,7 +89,7 @@ class MaterialLifecycleTest extends TestCase
             'title' => 'Stale replacement',
             'reason' => 'Working from an old form.',
             'file' => UploadedFile::fake()->createWithContent('stale.txt', 'stale'),
-        ])->assertStatus(409);
+        ])->assertSessionHasErrors('conflict');
 
         $this->assertSame(1, $material->fresh()->version);
         $this->assertSame($before, Storage::disk('local')->allFiles());
@@ -138,7 +138,7 @@ class MaterialLifecycleTest extends TestCase
         $this->post(route('materials.replace', $material), [
             'version' => 1, 'title' => 'Nope', 'reason' => 'Should fail.',
             'file' => UploadedFile::fake()->createWithContent('x.txt', 'x'),
-        ])->assertStatus(409);
+        ])->assertSessionHasErrors('conflict');
 
         $this->actingAs($this->learner)->post(route('materials.archive', $material), [
             'version' => 1, 'action' => 'restore',

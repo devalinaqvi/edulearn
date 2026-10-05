@@ -16,6 +16,7 @@ use App\Models\StudyNote;
 use App\Models\Submission;
 use App\Models\User;
 use App\Services\AiSettings;
+use App\Services\CourseExport;
 use App\Services\RichText;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -23,6 +24,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class CourseController extends Controller
 {
@@ -207,6 +209,30 @@ class CourseController extends Controller
         return $result['deleted']
             ? redirect()->route('courses.index')->with('status', $result['message'])
             : redirect()->route('courses.show', $course)->with('status', $result['message']);
+    }
+
+    /**
+     * Download a copy of a course's teaching content before archiving or deleting it.
+     *
+     * Built in a temporary file and streamed with deleteFileAfterSend, so a large course never
+     * has to be held in memory and nothing is left behind on disk afterwards.
+     */
+    public function export(Request $request, Course $course, CourseExport $export): BinaryFileResponse
+    {
+        Gate::authorize('manage', $course);
+
+        $path = tempnam(sys_get_temp_dir(), 'edulearn-export-');
+        try {
+            $export->write($course, $path);
+        } catch (\Throwable $exception) {
+            @unlink($path);
+            throw $exception;
+        }
+
+        return response()->download($path, $export->filename($course), [
+            'Content-Type' => 'application/zip',
+            'X-Content-Type-Options' => 'nosniff',
+        ])->deleteFileAfterSend();
     }
 
     public function trash(Request $request, ContentLifecycle $lifecycle): View

@@ -28,7 +28,7 @@ class ResultPublicationTest extends TestCase
         $this->post(route('submissions.publish', $submission), $payload)->assertForbidden();
         $this->actingAs(User::factory()->create(['role' => 'instructor']))->post(route('submissions.publish', $submission), $payload)->assertForbidden();
         $this->actingAs($teacher)->post(route('submissions.publish', $submission), ['version' => 1, 'reason' => 'Reviewed'])->assertSessionHasErrors('confirm');
-        $this->post(route('submissions.publish', $submission), array_replace($payload, ['version' => 0]))->assertConflict();
+        $this->post(route('submissions.publish', $submission), array_replace($payload, ['version' => 0]))->assertSessionHasErrors('conflict');
         $this->post(route('submissions.publish', $submission), $payload)->assertRedirect();
         $this->post(route('submissions.publish', $submission), $payload)->assertRedirect();
         $this->assertDatabaseCount('result_publications', 1);

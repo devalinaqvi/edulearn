@@ -128,7 +128,7 @@ class PublishedCourseEditingTest extends TestCase
         $this->assertSame('published', DB::table('quizzes')->where('id', $quiz->id)->value('status'));
 
         $this->post(route('quizzes.author', $quiz->id), ['version' => 2, 'action' => 'question', 'type' => 'mcq', 'prompt' => 'Late addition', 'points' => 5, 'options' => ['a', 'b', 'c', 'd'], 'correct' => 0])
-            ->assertStatus(409);
+            ->assertSessionHasErrors('conflict');
     }
 
     /** @return array{0: User, 1: User, 2: Course, 3: Assignment} */
@@ -237,7 +237,7 @@ class PublishedCourseEditingTest extends TestCase
         [$teacher, , , $assignment] = $this->assignmentScenario();
         $this->actingAs($teacher)->patch(route('assignments.update', $assignment), $this->assignmentPayload($assignment, ['title' => 'First save']))->assertRedirect();
 
-        $this->patch(route('assignments.update', $assignment), $this->assignmentPayload($assignment, ['title' => 'Stale save']))->assertStatus(409);
+        $this->patch(route('assignments.update', $assignment), $this->assignmentPayload($assignment, ['title' => 'Stale save']))->assertSessionHasErrors('conflict');
 
         $this->assertSame('First save', $assignment->fresh()->title);
     }
@@ -346,7 +346,7 @@ class PublishedCourseEditingTest extends TestCase
         $this->patch(route('quizzes.update', $quiz->id), ['closes_at' => DisplayTime::forInput(now()->subDay())] + $valid)
             ->assertSessionHasErrors('closes_at');
 
-        $this->patch(route('quizzes.update', $quiz->id), ['version' => 99] + $valid)->assertStatus(409);
+        $this->patch(route('quizzes.update', $quiz->id), ['version' => 99] + $valid)->assertSessionHasErrors('conflict');
 
         $this->actingAs($outsider)->patch(route('quizzes.update', $quiz->id), $valid)->assertForbidden();
         $this->actingAs($student)->patch(route('quizzes.update', $quiz->id), $valid)->assertForbidden();

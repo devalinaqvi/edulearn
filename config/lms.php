@@ -18,6 +18,12 @@ return [
         'max_per_assignment' => 10,
     ],
 
+    /*
+    | How long archived content stays in Trash before lms:purge-trash may remove it. Only applies
+    | to records nothing depends on; anything carrying learner history is retained indefinitely.
+    */
+    'trash_retention_days' => (int) env('LMS_TRASH_RETENTION_DAYS', 90),
+
     'login_max_failures' => 5,
     'login_lockout_minutes' => (int) env('LMS_LOGIN_LOCKOUT_MINUTES', 15),
 ];
