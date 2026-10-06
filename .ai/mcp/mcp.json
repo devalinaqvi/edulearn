@@ -3,7 +3,7 @@
     "laravel-boost": {
       "command": "/usr/bin/php8.3",
       "args": [
-        "/home/devali/Development/applications/Advance Learning Management System/artisan",
+        "/home/devali/Development/applications/AdvanceLearningManagementSystem/artisan",
         "boost:mcp"
       ]
     }
