@@ -2,6 +2,7 @@
 
 namespace App\Actions;
 
+use App\Models\Assignment;
 use App\Models\Course;
 use App\Models\Lesson;
 use App\Models\User;
@@ -9,7 +10,9 @@ use App\Services\DependencyAnalyzer;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Archival, restoration and permanent deletion of course content.
@@ -113,6 +116,114 @@ class ContentLifecycle
     }
 
     /**
+     * Move an assignment between draft, published and archived.
+     *
+     * A draft has not been issued, so nothing is lost by editing or discarding it. Publishing
+     * issues it to the course. Archiving withdraws it from learners while every submission,
+     * grade and extension already recorded against it stays exactly where it is — which is why
+     * archiving is offered even when work exists, and deletion is not.
+     *
+     * @param  array<string, mixed>  $input
+     */
+    public function setAssignmentStatus(User $actor, Assignment $assignment, array $input): string
+    {
+        return DB::transaction(function () use ($actor, $assignment, $input) {
+            WriteLock::acquire();
+            $current = Assignment::whereKey($assignment->id)->lockForUpdate()->firstOrFail();
+            Gate::forUser($actor->fresh())->authorize('manage', $current->course);
+
+            $data = Validator::make($input, [
+                'version' => 'required|integer|min:0',
+                'status' => 'required|in:draft,published,archived',
+                'reason' => 'nullable|string|max:1000',
+            ])->validate();
+
+            abort_if((int) $data['version'] !== $current->version, 409, 'This assignment changed. Reload before continuing.');
+
+            if ($current->status === $data['status']) {
+                return 'This assignment is already '.$data['status'].'.';
+            }
+
+            // Returning issued coursework to draft would retract it from learners who can already
+            // see it while keeping their submissions attached to something unissued. Withdrawing
+            // is what archiving is for.
+            if ($data['status'] === 'draft' && $current->hasRecordedWork()) {
+                throw ValidationException::withMessages([
+                    'status' => 'This assignment cannot return to draft because learners have already submitted work. Archive it instead to withdraw it while keeping their submissions.',
+                ]);
+            }
+
+            $current->update([
+                'status' => $data['status'],
+                'published_at' => $data['status'] === 'published' ? ($current->published_at ?? now()) : $current->published_at,
+                'published_by' => $data['status'] === 'published' ? ($current->published_by ?? $actor->id) : $current->published_by,
+                'archived_at' => $data['status'] === 'archived' ? now() : null,
+                'archived_by' => $data['status'] === 'archived' ? $actor->id : null,
+                'version' => $current->version + 1,
+            ]);
+
+            $this->record($actor, $current, match ($data['status']) {
+                'published' => 'published',
+                'archived' => 'archived',
+                default => 'returned_to_draft',
+            }, $data['reason'] ?? null);
+
+            return match ($data['status']) {
+                'published' => 'Assignment published. Enrolled learners can see it and submit work.',
+                'archived' => 'Assignment moved to Trash. Learners can no longer see or submit to it. Existing submissions and grades are preserved.',
+                default => 'Assignment returned to draft. It is no longer visible to learners.',
+            };
+        });
+    }
+
+    /**
+     * Permanently delete an assignment, but only when no learner has submitted to it.
+     *
+     * Reference media is attached by cascade and goes with it, which is correct for an
+     * illustration. A submission restricts instead, so any assignment anyone has worked on is
+     * archived rather than destroyed.
+     *
+     * @param  array<string, mixed>  $input
+     * @return array{deleted: bool, message: string}
+     */
+    public function deleteAssignment(User $actor, Assignment $assignment, array $input): array
+    {
+        return DB::transaction(function () use ($actor, $assignment, $input) {
+            WriteLock::acquire();
+            $current = Assignment::whereKey($assignment->id)->lockForUpdate()->firstOrFail();
+            Gate::forUser($actor->fresh())->authorize('manage', $current->course);
+
+            $data = Validator::make($input, [
+                'version' => 'required|integer|min:0',
+                'confirm' => 'accepted',
+                'reason' => 'nullable|string|max:1000',
+            ])->validate();
+            abort_if((int) $data['version'] !== $current->version, 409, 'This assignment changed. Reload before continuing.');
+
+            $report = $this->dependencies->for('assignments', $current->id);
+            if ($report['blocked']) {
+                $current->update([
+                    'status' => 'archived',
+                    'archived_at' => $current->archived_at ?? now(),
+                    'archived_by' => $current->archived_by ?? $actor->id,
+                    'version' => $current->version + 1,
+                ]);
+                $this->record($actor, $current, 'deletion_blocked', $data['reason'] ?? null, $report['blockers']);
+
+                return ['deleted' => false, 'message' => $report['summary']];
+            }
+
+            $media = $current->media()->pluck('path')->all();
+            $this->record($actor, $current, 'deleted', $data['reason'] ?? null);
+            $current->delete();
+            // Cascaded rows are gone; their files are not, so remove them once the delete commits.
+            DB::afterCommit(fn () => array_map(fn ($path) => Storage::disk('local')->delete($path), $media));
+
+            return ['deleted' => true, 'message' => 'Assignment permanently deleted. No learner had submitted to it.'];
+        });
+    }
+
+    /**
      * Permanently delete a course, but only when it holds no record of anything.
      *
      * In practice a course that has ever been taught cannot reach this path: lessons, enrolments,
@@ -159,13 +270,18 @@ class ContentLifecycle
      *
      * @param  list<array{table: string, label: string, count: int}>  $preserved
      */
-    private function record(?User $actor, Lesson|Course $subject, string $action, ?string $reason, array $preserved = []): void
+    private function record(?User $actor, Lesson|Course|Assignment $subject, string $action, ?string $reason, array $preserved = []): void
     {
         $course = $subject instanceof Course ? $subject : $subject->course;
+        $type = match (true) {
+            $subject instanceof Course => 'course',
+            $subject instanceof Assignment => 'assignment',
+            default => 'lesson',
+        };
 
         DB::table('content_lifecycle_changes')->insert([
             'actor_id' => $actor?->id,
-            'subject_type' => $subject instanceof Course ? 'course' : 'lesson',
+            'subject_type' => $type,
             'subject_id' => $subject->id,
             'subject_title' => mb_substr($subject->title, 0, 255),
             'course_id' => $course?->id,

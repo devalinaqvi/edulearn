@@ -109,7 +109,9 @@ class CourseExport
             'assignments' => $course->assignments()->orderBy('id')->get()
                 ->map(fn ($assignment) => [
                     'title' => $assignment->title,
+                    'status' => $assignment->status,
                     'instructions' => $assignment->instructions,
+                    'instructions_format' => $assignment->instructions_format,
                     'due_at' => optional($assignment->due_at)->toIso8601String(),
                     'max_marks' => $assignment->max_marks,
                     'rubric' => $assignment->rubric,

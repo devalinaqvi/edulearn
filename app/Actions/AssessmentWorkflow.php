@@ -6,6 +6,7 @@ use App\Models\Assignment;
 use App\Models\Submission;
 use App\Models\User;
 use App\Services\DisplayTime;
+use App\Services\RichText;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -50,7 +51,8 @@ class AssessmentWorkflow
             $data = Validator::make($input, [
                 'version' => 'required|integer|min:0',
                 'title' => 'required|string|max:160',
-                'instructions' => 'required|string|max:20000',
+                'instructions' => 'required|string|max:200000',
+                'instructions_format' => 'nullable|in:text,html',
                 'due_at' => 'required|date',
                 'max_marks' => 'required|integer|min:1|max:100000',
             ])->validate();
@@ -72,9 +74,18 @@ class AssessmentWorkflow
                 $rubricCleared = true;
             }
 
+            $richText = ($data['instructions_format'] ?? 'text') === 'html';
+            $instructions = $richText ? RichText::sanitize($data['instructions']) : $data['instructions'];
+            if ($richText && $instructions === '') {
+                throw ValidationException::withMessages([
+                    'instructions' => 'The instructions are empty once unsupported formatting is removed. Write the brief itself.',
+                ]);
+            }
+
             $current->update([
                 'title' => $data['title'],
-                'instructions' => $data['instructions'],
+                'instructions' => $instructions,
+                'instructions_format' => $richText ? 'html' : 'text',
                 'due_at' => $data['due_at'],
                 'max_marks' => $maximum,
                 'rubric' => $rubric,

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Actions\AssessmentWorkflow;
 use App\Actions\AssignmentMediaLibrary;
+use App\Actions\ContentLifecycle;
 use App\Actions\WriteLock;
 use App\Models\Assignment;
 use App\Models\AssignmentMedium;
@@ -11,6 +12,7 @@ use App\Models\Course;
 use App\Models\Submission;
 use App\Services\DisplayTime;
 use App\Services\PrivateMediaStream;
+use App\Services\RichText;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -24,10 +26,60 @@ class AcademicController extends Controller
     public function assignment(Request $r, Course $course)
     {
         Gate::authorize('manage', $course);
-        $data = $r->validate(['title' => 'required|string|max:160', 'instructions' => 'required|string|max:20000', 'due_at' => 'required|date', 'max_marks' => 'required|integer|min:1|max:100000']);
-        $course->assignments()->create(DisplayTime::normalize($data, 'due_at'));
+        $data = $r->validate([
+            'title' => 'required|string|max:160',
+            'instructions' => 'required|string|max:200000',
+            'instructions_format' => 'nullable|in:text,html',
+            'due_at' => 'required|date',
+            'max_marks' => 'required|integer|min:1|max:100000',
+        ]);
+        $data = DisplayTime::normalize($data, 'due_at') + ['status' => 'draft'];
+        $data = $this->withCleanInstructions($data);
 
-        return back()->with('status', 'Assignment created.');
+        $course->assignments()->create($data);
+
+        return back()->with('status', 'Assignment created as a draft. Publish it when you are ready for learners to see it.');
+    }
+
+    /**
+     * Clean authored instructions before anything is stored, so a brief read back from the
+     * database has necessarily passed through the allowlist.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function withCleanInstructions(array $data): array
+    {
+        if (($data['instructions_format'] ?? 'text') !== 'html') {
+            return array_merge($data, ['instructions_format' => 'text']);
+        }
+
+        $clean = RichText::sanitize($data['instructions']);
+        if ($clean === '') {
+            throw ValidationException::withMessages([
+                'instructions' => 'The instructions are empty once unsupported formatting is removed. Write the brief itself.',
+            ]);
+        }
+
+        return array_merge($data, ['instructions' => $clean, 'instructions_format' => 'html']);
+    }
+
+    public function status(Request $request, Assignment $assignment, ContentLifecycle $lifecycle): RedirectResponse
+    {
+        Gate::authorize('manage', $assignment->course);
+
+        return back()->with('status', $lifecycle->setAssignmentStatus($request->user(), $assignment, $request->all()));
+    }
+
+    public function destroy(Request $request, Assignment $assignment, ContentLifecycle $lifecycle): RedirectResponse
+    {
+        Gate::authorize('manage', $assignment->course);
+        $course = $assignment->course;
+        $result = $lifecycle->deleteAssignment($request->user(), $assignment, $request->all());
+
+        return $result['deleted']
+            ? redirect()->route('courses.show', $course)->with('status', $result['message'])
+            : redirect()->route('assignments.show', $assignment)->with('status', $result['message']);
     }
 
     public function update(Request $r, Assignment $assignment): RedirectResponse
@@ -44,6 +96,8 @@ class AcademicController extends Controller
     {
         Gate::authorize('view', $assignment->course);
         $manage = Gate::allows('manage', $assignment->course);
+        // A draft has not been issued and an archived assignment has been withdrawn.
+        abort_unless($manage || $assignment->isPublished(), 404);
         $submissions = $assignment->submissions()->with('user')->when(! $manage, fn ($q) => $q->where('user_id', $r->user()->id))->get();
 
         $deadline = app(AssessmentWorkflow::class)->deadline($assignment, $r->user()->id);
@@ -113,6 +167,7 @@ class AcademicController extends Controller
     public function submit(Request $r, Assignment $assignment)
     {
         Gate::authorize('participate', $assignment->course);
+        abort_unless($assignment->isPublished(), 404);
         $data = $r->validate(['body' => 'nullable|required_without:file|string|max:20000', 'file' => 'nullable|required_without:body|file|max:5120|mimes:txt,md,pdf|extensions:txt,md,pdf']);
         $path = $r->file('file')?->store('submissions', 'local');
         $duplicate = false;

@@ -103,7 +103,7 @@
 <a class="button secondary" href="{{ route('quizzes.index', $course) }}">Quizzes →</a></span>
 </div>@forelse($course->assignments as $assignment)@php($mine=$assignment->submissions->first())<a class="panel assignment-link" href="{{ route('assignments.show',$assignment) }}">
 <div>
-<h3>{{ $assignment->title }}</h3>
+<h3>{{ $assignment->title }}@if($manage && !$assignment->isPublished()) <span class="badge">{{ ucfirst($assignment->status) }}</span>@endif</h3>
 <p class="muted">Due @showtime($assignment->due_at) · {{ $assignment->max_marks }} marks</p>
 </div>
 <span class="badge">{{ $mine ? ucfirst($mine->status) : ($manage ? 'Review →' : 'To do →') }}</span>
@@ -112,15 +112,32 @@
 <summary>+ Create an assignment</summary>
 <form method="post" action="{{ route('assignments.store',$course) }}">@csrf<label>Title<input name="title" required>
 </label>
-<label>Instructions<textarea name="instructions" required rows="4">
-</textarea>
-</label>
+<label for="new-assignment-instructions">Instructions</label>
+<div class="editor" data-editor>
+<div class="editor-toolbar" role="toolbar" aria-label="Formatting" data-editor-toolbar>
+<button type="button" data-command="bold" aria-pressed="false" title="Bold (Ctrl+B)"><strong>B</strong></button>
+<button type="button" data-command="italic" aria-pressed="false" title="Italic (Ctrl+I)"><em>I</em></button>
+<button type="button" data-command="underline" aria-pressed="false" title="Underline (Ctrl+U)"><u>U</u></button>
+<button type="button" data-command="formatBlock" data-value="h2" title="Heading">H2</button>
+<button type="button" data-command="formatBlock" data-value="h3" title="Subheading">H3</button>
+<button type="button" data-command="insertUnorderedList" title="Bulleted list">&bull; List</button>
+<button type="button" data-command="insertOrderedList" title="Numbered list">1. List</button>
+<button type="button" data-command="formatBlock" data-value="blockquote" title="Quote">&ldquo;&rdquo;</button>
+<button type="button" data-command="formatBlock" data-value="pre" title="Code block">&lt;/&gt;</button>
+<button type="button" data-command="createLink" title="Add a link">Link</button>
+<button type="button" data-command="removeFormat" title="Clear formatting">Clear</button>
+</div>
+<textarea id="new-assignment-instructions" name="instructions" rows="6" required data-editor-source></textarea>
+<input type="hidden" name="instructions_format" value="text" data-editor-format>
+</div>
+<p class="muted">Formatting is checked again on the server; anything unsupported is removed when the assignment is saved.</p>
 <div class="two-col">
 <label>Deadline (@tz)<input type="datetime-local" name="due_at" required>
 </label>
 <label>Maximum marks<input type="number" name="max_marks" value="100" min="1" max="100000" required>
 </label>
 </div>
+<p class="muted">New assignments start as a draft. Learners see nothing until you publish it.</p>
 <button class="button">Create assignment</button>
 </form>
 </details>@endif

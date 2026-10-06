@@ -52,6 +52,8 @@ Route::middleware(['auth', 'auth.session', EnsureAccountIsActive::class])->group
     Route::post('/courses/{course}/assignments', [AcademicController::class, 'assignment'])->name('assignments.store');
     Route::get('/assignments/{assignment}', [AcademicController::class, 'show'])->name('assignments.show');
     Route::patch('/assignments/{assignment}', [AcademicController::class, 'update'])->name('assignments.update');
+    Route::post('/assignments/{assignment}/status', [AcademicController::class, 'status'])->name('assignments.status');
+    Route::delete('/assignments/{assignment}', [AcademicController::class, 'destroy'])->name('assignments.destroy');
     Route::post('/assignments/{assignment}/media', [AcademicController::class, 'attachMedia'])->name('assignments.media.store');
     Route::delete('/assignment-media/{medium}', [AcademicController::class, 'detachMedia'])->name('assignments.media.destroy');
     Route::match(['get', 'head'], '/assignment-media/{medium}', [AcademicController::class, 'media'])->name('assignments.media.show');

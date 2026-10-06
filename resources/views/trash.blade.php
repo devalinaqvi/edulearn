@@ -44,6 +44,37 @@
 <div class="empty panel">No archived lessons.</div>
 @endforelse
 
+<div class="section-heading"><h2>Archived assignments</h2><span class="muted">{{ $assignments->count() }}</span></div>
+@forelse($assignments as $assignment)
+@php($report = $assignmentReports[$assignment->id])
+<article class="panel">
+<div class="row between">
+<h3><a href="{{ route('assignments.show', $assignment) }}">{{ $assignment->title }}</a></h3>
+<span class="badge">{{ $assignment->course->title }}</span>
+</div>
+<p class="muted">Archived @showtime($assignment->archived_at)</p>
+<div class="row wrap">
+<form method="post" action="{{ route('assignments.status', $assignment) }}">@csrf
+<input type="hidden" name="version" value="{{ $assignment->version }}">
+<input type="hidden" name="status" value="published">
+<button class="button secondary">Restore and publish</button>
+</form>
+@if($report['blocked'])
+<p class="muted" role="note">{{ $report['summary'] }}</p>
+@else
+<form method="post" action="{{ route('assignments.destroy', $assignment) }}" data-confirm="Permanently delete &ldquo;{{ $assignment->title }}&rdquo;? This cannot be undone.">@csrf @method('delete')
+<input type="hidden" name="version" value="{{ $assignment->version }}"><input type="hidden" name="confirm" value="1">
+<details class="reason-optional"><summary>Add a reason (optional)</summary><label>Reason<input name="reason" maxlength="1000" placeholder="Recorded in the deletion history"></label></details>
+<button class="button danger">Delete permanently</button>
+</form>
+<p class="muted">{{ $report['summary'] }}</p>
+@endif
+</div>
+</article>
+@empty
+<div class="empty panel">No archived assignments.</div>
+@endforelse
+
 @if(auth()->user()->role === 'admin')
 <div class="section-heading"><h2>Archived courses</h2><span class="muted">{{ $courses->count() }}</span></div>
 @forelse($courses as $course)

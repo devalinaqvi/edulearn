@@ -10,7 +10,7 @@
 </div>
 <section class="panel">
 <h2>Instructions</h2>
-<div class="prose">{{ $assignment->instructions }}</div>
+<div class="prose">@if($assignment->isRichText()){!! $assignment->instructions !!}@else{!! nl2br(e($assignment->instructions)) !!}@endif</div>
 </section>
 @if($media->isNotEmpty())
 <section class="panel"><h2>Reference material</h2>
@@ -42,7 +42,25 @@
 <details class="panel"><summary>Edit this assignment</summary><p>Publishing a course does not lock its content. Title, instructions and the deadline stay editable at any time.</p>
 <form method="post" action="{{ route('assignments.update', $assignment) }}">@csrf @method('patch')<input type="hidden" name="version" value="{{ $assignment->version }}">
 <label>Title<input name="title" maxlength="160" value="{{ old('title', $assignment->title) }}" required></label>
-<label>Instructions<textarea name="instructions" rows="6" maxlength="20000" required>{{ old('instructions', $assignment->instructions) }}</textarea></label>
+<label for="assignment-instructions-{{ $assignment->id }}">Instructions</label>
+<div class="editor" data-editor>
+<div class="editor-toolbar" role="toolbar" aria-label="Formatting" data-editor-toolbar>
+<button type="button" data-command="bold" aria-pressed="false" title="Bold (Ctrl+B)"><strong>B</strong></button>
+<button type="button" data-command="italic" aria-pressed="false" title="Italic (Ctrl+I)"><em>I</em></button>
+<button type="button" data-command="underline" aria-pressed="false" title="Underline (Ctrl+U)"><u>U</u></button>
+<button type="button" data-command="formatBlock" data-value="h2" title="Heading">H2</button>
+<button type="button" data-command="formatBlock" data-value="h3" title="Subheading">H3</button>
+<button type="button" data-command="insertUnorderedList" title="Bulleted list">&bull; List</button>
+<button type="button" data-command="insertOrderedList" title="Numbered list">1. List</button>
+<button type="button" data-command="formatBlock" data-value="blockquote" title="Quote">&ldquo;&rdquo;</button>
+<button type="button" data-command="formatBlock" data-value="pre" title="Code block">&lt;/&gt;</button>
+<button type="button" data-command="createLink" title="Add a link">Link</button>
+<button type="button" data-command="removeFormat" title="Clear formatting">Clear</button>
+</div>
+<textarea id="assignment-instructions-{{ $assignment->id }}" name="instructions" rows="8" required data-editor-source>{{ old('instructions', $assignment->instructions) }}</textarea>
+<input type="hidden" name="instructions_format" value="{{ $assignment->instructions_format ?? 'text' }}" data-editor-format>
+</div>
+<p class="muted">Formatting is checked again on the server; anything unsupported is removed when the assignment is saved.</p>
 <label>Deadline (@tz)<input type="datetime-local" name="due_at" value="{{ old('due_at', \App\Services\DisplayTime::forInput($assignment->due_at)) }}" required></label>
 @if($submissions->isEmpty())
 <label>Total marks<input type="number" name="max_marks" min="1" max="100000" value="{{ old('max_marks', $assignment->max_marks) }}" required></label>
@@ -60,6 +78,28 @@
 @endfor
 <button class="button">Save rubric</button></form></details>
 @endif
+<details class="panel"><summary>Publication state</summary>
+<p>This assignment is <strong>{{ $assignment->status }}</strong>. Drafts and archived assignments are invisible to learners and cannot be submitted to.</p>
+<form method="post" action="{{ route('assignments.status', $assignment) }}">@csrf<input type="hidden" name="version" value="{{ $assignment->version }}">
+<fieldset class="choice-group"><legend>Set the state</legend>
+<label><input type="radio" name="status" value="draft" @checked($assignment->isDraft()) @disabled($submissions->isNotEmpty())> Draft — not yet issued@if($submissions->isNotEmpty()) (unavailable once work is submitted)@endif</label>
+<label><input type="radio" name="status" value="published" @checked($assignment->isPublished())> Published — visible to learners</label>
+<label><input type="radio" name="status" value="archived" @checked($assignment->isArchived())> Archived — withdrawn, submissions kept</label>
+</fieldset>
+<details class="reason-optional"><summary>Add a reason (optional)</summary><label>Reason<input name="reason" maxlength="1000" placeholder="Recorded in the removal history"></label></details>
+<button class="button secondary">Save state</button></form>
+@if($submissions->isEmpty())
+<hr>
+<p>No learner has submitted to this assignment, so it can be removed permanently. Reference files attached to the brief are removed with it.</p>
+<form method="post" action="{{ route('assignments.destroy', $assignment) }}" data-confirm="Permanently delete &ldquo;{{ $assignment->title }}&rdquo;? This cannot be undone.">@csrf @method('delete')
+<input type="hidden" name="version" value="{{ $assignment->version }}"><input type="hidden" name="confirm" value="1">
+<details class="reason-optional"><summary>Add a reason (optional)</summary><label>Reason<input name="reason" maxlength="1000" placeholder="Recorded in the deletion history"></label></details>
+<button class="button danger">Delete permanently</button></form>
+@else
+<hr>
+<p class="muted">This assignment cannot be deleted because {{ $submissions->count() }} learner {{ \Illuminate\Support\Str::plural('submission', $submissions->count()) }} depend on it. Archive it instead to withdraw it while keeping that work.</p>
+@endif
+</details>
 <details class="panel"><summary>Add reference material</summary>
 <p>Attach an image or a short MP4 clip to the brief. Images need a description so that learners using a screen reader receive the same information.</p>
 <form method="post" enctype="multipart/form-data" action="{{ route('assignments.media.store', $assignment) }}">@csrf

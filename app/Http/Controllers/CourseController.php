@@ -38,7 +38,9 @@ class CourseController extends Controller
         $notes = StudyNote::where('user_id', $user->id)->latest()->limit(3)->get();
 
         $courseIds = $courses->pluck('id');
-        $upcoming = Assignment::with('course')->whereIn('course_id', $courseIds)->where('due_at', '>=', now())->orderBy('due_at')->limit(5)->get();
+        // A draft has not been issued and an archived assignment has been withdrawn; neither is
+        // an upcoming deadline for anybody, staff included.
+        $upcoming = Assignment::with('course')->whereIn('course_id', $courseIds)->issued()->where('due_at', '>=', now())->orderBy('due_at')->limit(5)->get();
         $quizzes = DB::table('quizzes')->whereIn('course_id', $courseIds)->where('status', 'published')
             ->where(fn ($open) => $open->whereNull('closes_at')->orWhere('closes_at', '>', now()))
             ->orderByRaw('opens_at is null desc')->orderBy('opens_at')->limit(5)->get();
@@ -113,7 +115,7 @@ class CourseController extends Controller
     {
         Gate::authorize('view', $course);
         $manage = Gate::allows('manage', $course);
-        $course->load(['lessons' => fn ($query) => $query->when(! $manage, fn ($active) => $active->where('status', 'active')), 'materials' => fn ($query) => $query->when(! $manage, fn ($active) => $active->where('status', 'active')), 'assignments.submissions' => fn ($query) => $query->where('user_id', $r->user()->id), 'announcements']);
+        $course->load(['lessons' => fn ($query) => $query->when(! $manage, fn ($active) => $active->where('status', 'active')), 'materials' => fn ($query) => $query->when(! $manage, fn ($active) => $active->where('status', 'active')), 'assignments' => fn ($query) => $query->when(! $manage, fn ($issued) => $issued->where('status', 'published')), 'assignments.submissions' => fn ($query) => $query->where('user_id', $r->user()->id), 'announcements']);
         $completed = LessonCompletion::where('user_id', $r->user()->id)->pluck('lesson_id')->all();
         $enrollments = collect();
         $materialRevisions = collect();
@@ -240,23 +242,29 @@ class CourseController extends Controller
         // Learners have no archived content and no business reading its history.
         abort_if($request->user()->role === 'student', 403);
 
-        $courses = Course::with('instructor')
-            ->when($request->user()->role === 'instructor', fn ($q) => $q->where(fn ($assigned) => $assigned->where('instructor_id', $request->user()->id)->orWhereHas('coInstructors', fn ($i) => $i->where('users.id', $request->user()->id))))
-            ->when($request->user()->role === 'student', fn ($q) => $q->whereRaw('1 = 0'))
-            ->where('status', 'archived')->latest()->get();
+        // One definition of "courses this person may manage", reused by everything below.
+        $viewer = $request->user();
+        $manageable = fn ($query) => $query->when(
+            $viewer->role === 'instructor',
+            fn ($scoped) => $scoped->where(fn ($assigned) => $assigned->where('instructor_id', $viewer->id)
+                ->orWhereHas('coInstructors', fn ($instructor) => $instructor->where('users.id', $viewer->id))),
+        );
+
+        $courses = $manageable(Course::with('instructor'))->where('status', 'archived')->latest()->get();
+        $manageableIds = $manageable(Course::query())->select('id');
 
         $lessons = Lesson::with('course')->where('status', 'archived')
-            ->whereIn('course_id', Course::query()
-                ->when($request->user()->role === 'instructor', fn ($q) => $q->where(fn ($assigned) => $assigned->where('instructor_id', $request->user()->id)->orWhereHas('coInstructors', fn ($i) => $i->where('users.id', $request->user()->id))))
-                ->when($request->user()->role === 'student', fn ($q) => $q->whereRaw('1 = 0'))
-                ->select('id'))
-            ->latest('archived_at')->get();
+            ->whereIn('course_id', $manageableIds)->latest('archived_at')->get();
+
+        $assignments = Assignment::with('course')->where('status', 'archived')
+            ->whereIn('course_id', $manageableIds)->latest('archived_at')->get();
 
         $reports = $lessons->mapWithKeys(fn ($lesson) => [$lesson->id => $lifecycle->report('lessons', $lesson->id)]);
+        $assignmentReports = $assignments->mapWithKeys(fn ($assignment) => [$assignment->id => $lifecycle->report('assignments', $assignment->id)]);
         $courseReports = $courses->mapWithKeys(fn ($course) => [$course->id => $lifecycle->report('courses', $course->id)]);
         $activity = $lifecycle->recentActivity($request->user());
 
-        return view('trash', compact('courses', 'lessons', 'reports', 'courseReports', 'activity'));
+        return view('trash', compact('courses', 'lessons', 'assignments', 'reports', 'courseReports', 'assignmentReports', 'activity'));
     }
 
     public function complete(Request $r, Lesson $lesson)
