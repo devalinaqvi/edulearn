@@ -1406,8 +1406,35 @@ legend { padding:0 8px; font-size:16px; font-weight:600; overflow-wrap:anywhere;
 .logout .nav-icon { width: 1.25em; height: 1.25em; vertical-align: -0.25em; opacity: .75; }
 .logout:hover .nav-icon { opacity: 1; }
 
+/* ---- Trash ---------------------------------------------------------------
+   Each card reads top to bottom: what it is, where it came from, what will
+   happen to it, then the controls. Prose and controls are never siblings in
+   the same flex row — that is what made the row reflow sideways whenever the
+   optional-reason disclosure was opened. */
+.trash-item > h3 { margin: 0 0 .15rem; }
+.trash-item > h3 .badge { vertical-align: middle; margin-left: .4rem; }
+.trash-meta { margin: 0 0 .6rem; font-size: .88rem; color: var(--muted, #5d665c); }
+.trash-note { margin: 0 0 .9rem; max-width: 62ch; }
+.trash-note[role="note"] { color: var(--muted, #5d665c); }
+
+.trash-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+.trash-actions > form { margin: 0; }
+
+/* The optional reason is its own block above the buttons, and reaches the delete
+   form through the input's form attribute. Keeping it out of the form is what
+   lets both buttons share one row and stay aligned with each other, and means
+   opening it pushes the row down rather than shunting a button sideways. */
+.trash-item > .reason-optional { margin: 0 0 .9rem; }
+.trash-item > .reason-optional label { display: block; margin-top: .4rem; max-width: 34rem; }
+.trash-item > .reason-optional input { margin-top: .2rem; }
+
 /* Removal history entries read as a log, so they are separated rather than boxed individually. */
 .history-entry { padding: .7rem 0; border-top: 1px solid var(--line, #d9ded7); }
 .history-entry:first-of-type { border-top: 0; padding-top: 0; }
 .history-entry p { margin: 0 0 .25rem; }
 .history-entry p:last-child { margin-bottom: 0; }
+
+@media (max-width: 640px) {
+ .trash-actions { flex-direction: column; align-items: stretch; }
+ .trash-actions .button { width: 100%; }
+}
