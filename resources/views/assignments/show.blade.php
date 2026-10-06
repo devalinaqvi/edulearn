@@ -82,7 +82,8 @@
 <p>This assignment is <strong>{{ $assignment->status }}</strong>. Drafts and archived assignments are invisible to learners and cannot be submitted to.</p>
 <form method="post" action="{{ route('assignments.status', $assignment) }}">@csrf<input type="hidden" name="version" value="{{ $assignment->version }}">
 <fieldset class="choice-group"><legend>Set the state</legend>
-<label><input type="radio" name="status" value="draft" @checked($assignment->isDraft()) @disabled($submissions->isNotEmpty())> Draft — not yet issued@if($submissions->isNotEmpty()) (unavailable once work is submitted)@endif</label>
+<label><input type="radio" name="status" value="draft" @checked($assignment->isDraft()) @disabled($submissions->isNotEmpty())> Draft — not yet issued</label>
+@if($submissions->isNotEmpty())<p class="muted">Returning to draft is unavailable once learners have submitted work. Archive it instead.</p>@endif
 <label><input type="radio" name="status" value="published" @checked($assignment->isPublished())> Published — visible to learners</label>
 <label><input type="radio" name="status" value="archived" @checked($assignment->isArchived())> Archived — withdrawn, submissions kept</label>
 </fieldset>
